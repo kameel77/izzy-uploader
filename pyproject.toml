@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "izzy-uploader"
+version = "0.1.0"
+description = "CSV synchronisation service for the Izzylease platform"
+authors = [{ name = "Izzy Uploader Team" }]
+readme = "READ.md"
+requires-python = ">=3.10"
+dependencies = [
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+
+[project.scripts]
+izzy-uploader = "izzy_uploader.cli:cli"
