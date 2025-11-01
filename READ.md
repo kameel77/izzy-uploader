@@ -33,7 +33,10 @@ klienta HTTP oraz orkiestrator procesów z wierszem poleceń.
 
 ## Uruchomienie CLI
 1. Zainstaluj zależności projektu (np. `pip install -e .[dev]`).
-2. Ustaw zmienne środowiskowe `IZZYLEASE_API_BASE_URL` oraz `IZZYLEASE_API_KEY`.
+2. Ustaw zmienne środowiskowe:
+   - `IZZYLEASE_API_BASE_URL` – adres API (np. `https://api.izzylease.pl`)
+   - `IZZYLEASE_CLIENT_ID` oraz `IZZYLEASE_CLIENT_SECRET` – dane do autoryzacji OAuth2 (Client Credentials)
+   - opcjonalnie `IZZYLEASE_STATE_FILE` – ścieżka do pliku z mapowaniem VIN → car_id (domyślnie `~/.izzy_uploader/state.json`)
 3. Uruchom komendę synchronizacji:
    ```bash
    izzy-uploader sync data/vehicles.csv --close-missing --update-prices --json

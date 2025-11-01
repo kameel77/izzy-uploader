@@ -3,45 +3,63 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal, InvalidOperation
+from enum import Enum
 from typing import Any, Dict, Iterable, Optional
+
+
+class CarRemovalReason(Enum):
+    """Reasons understood by the API when removing a vehicle."""
+
+    DELETED = "DELETED"
+    SOLD = "SOLD"
 
 
 @dataclass
 class Vehicle:
     """Represents a vehicle listed in the CSV file and/or on Izzylease."""
 
-    external_id: str
     vin: str
+    category: str
     make: str
     model: str
     manufacture_year: int
-    mileage: Optional[int]
-    fuel_type: Optional[str]
-    power: Optional[int]
-    transmission_type: Optional[str]
-    drive_wheels: Optional[str]
-    vehicle_type: Optional[str]
-    car_class: Optional[str]
-    doors: Optional[int]
-    color: Optional[str]
-    available_from: Optional[date]
-    first_registration_date: Optional[date]
-    description: Optional[str]
-    list_price: Optional[float]
-    sales_price: Optional[float]
-    mini_price: Optional[float]
-    location_id: Optional[str]
+    mileage: int
+    engine_code: str
+    cubic_capacity: float
+    acceleration: float
+    fuel_type: str
+    power: int
+    transmission_type: str
+    drive_wheels: str
+    vehicle_type: str
+    doors: int
+    color: str
+    list_price: Decimal
+    sales_price: Decimal
+    configuration_number: Optional[str] = None
+    car_class: Optional[str] = None
+    available_from: Optional[date] = None
+    first_registration_date: Optional[date] = None
+    description: Optional[str] = None
+    registration_number: Optional[str] = None
+    location_id: Optional[str] = None
+    car_id: Optional[str] = None
 
     def to_api_payload(self) -> Dict[str, Any]:
-        """Serialize the vehicle into a payload accepted by the API client."""
+        """Serialise the vehicle to the payload expected by the dealer API."""
 
-        return {
-            "externalId": self.external_id,
+        payload: Dict[str, Any] = {
+            "configurationNumber": self.configuration_number,
             "vin": self.vin,
+            "category": self.category,
             "make": self.make,
             "model": self.model,
             "manufactureYear": self.manufacture_year,
             "mileage": self.mileage,
+            "engineCode": self.engine_code,
+            "cubicCapacity": self.cubic_capacity,
+            "acceleration": self.acceleration,
             "fuelType": self.fuel_type,
             "power": self.power,
             "transmissionType": self.transmission_type,
@@ -54,44 +72,118 @@ class Vehicle:
             "firstRegistrationDate": _serialize_date(self.first_registration_date),
             "description": self.description,
             "pricing": {
-                "listPrice": self.list_price,
-                "salesPrice": self.sales_price,
-                "miniPrice": self.mini_price,
+                "listPrice": _format_money(self.list_price),
+                "salesPrice": _format_money(self.sales_price),
             },
+            "registrationNumber": self.registration_number,
             "locationId": self.location_id,
         }
 
-    def requires_price_discount_flag(self, current_price: Optional[float]) -> bool:
-        """Determine whether the vehicle price decreased compared to the current API state."""
+        # Drop keys with ``None`` values to keep the payload leaner.
+        return {key: value for key, value in payload.items() if value is not None}
 
-        if self.sales_price is None or current_price is None:
-            return False
-        return self.sales_price < current_price
+
+def vehicle_from_row(row: Dict[str, str]) -> Vehicle:
+    """Create a :class:`Vehicle` instance from a CSV row."""
+
+    missing: list[str] = []
+
+    def require(key: str) -> str:
+        value = row.get(key)
+        if value is None or value == "":
+            missing.append(key)
+            return ""
+        return value
+
+    vin = require("vin")
+    category = _normalise_enum(require("category"))
+    make = require("make")
+    model = require("model")
+    manufacture_year = _parse_int(require("manufactureYear"), "manufactureYear")
+    mileage = _parse_int(require("mileage"), "mileage")
+    engine_code = require("engineCode")
+    cubic_capacity = _parse_float(require("cubicCapacity"), "cubicCapacity")
+    acceleration = _parse_float(require("acceleration"), "acceleration")
+    fuel_type = _normalise_enum(require("fuelType"))
+    power = _parse_int(require("power"), "power")
+    transmission_type = _normalise_enum(require("transmissionType"))
+    drive_wheels = _normalise_drive_wheels(require("driveWheels"))
+    vehicle_type = _normalise_enum(require("type"))
+    doors = _parse_int(require("doors"), "doors")
+    color = require("color")
+    list_price = _parse_decimal(require("pricing_listPrice"), "pricing_listPrice")
+    sales_price = _parse_decimal(require("pricing_salesPrice"), "pricing_salesPrice")
+
+    if missing:
+        raise ValueError(f"Missing required CSV fields: {', '.join(sorted(set(missing)))}")
+
+    return Vehicle(
+        configuration_number=row.get("configurationNumber") or None,
+        vin=vin,
+        category=category,
+        make=make,
+        model=model,
+        manufacture_year=manufacture_year,
+        mileage=mileage,
+        engine_code=engine_code,
+        cubic_capacity=cubic_capacity,
+        acceleration=acceleration,
+        fuel_type=fuel_type,
+        power=power,
+        transmission_type=transmission_type,
+        drive_wheels=drive_wheels,
+        vehicle_type=vehicle_type,
+        car_class=_normalise_optional_enum(row.get("carClass")),
+        doors=doors,
+        color=color,
+        available_from=_parse_date(row.get("availableFrom")),
+        first_registration_date=_parse_date(row.get("firstRegistrationDate")),
+        description=row.get("description") or None,
+        list_price=list_price,
+        sales_price=sales_price,
+        registration_number=row.get("registrationNumber") or None,
+        location_id=row.get("locationId") or None,
+    )
+
+
+def unique_vins(vehicles: Iterable[Vehicle]) -> Dict[str, Vehicle]:
+    """Return a VIN-keyed dictionary, ensuring no duplicates are present."""
+
+    unique: Dict[str, Vehicle] = {}
+    for vehicle in vehicles:
+        if vehicle.vin in unique:
+            raise ValueError(f"Duplicate vehicle VIN detected: {vehicle.vin}")
+        unique[vehicle.vin] = vehicle
+    return unique
 
 
 def _serialize_date(value: Optional[date]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
-def parse_int(value: Optional[str]) -> Optional[int]:
-    if value is None or value == "":
-        return None
+def _parse_int(value: str, field: str) -> int:
     try:
         return int(value)
-    except ValueError as exc:  # pragma: no cover - defensive guard
-        raise ValueError(f"Invalid integer value: {value}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid integer value for '{field}': {value}") from exc
 
 
-def parse_float(value: Optional[str]) -> Optional[float]:
-    if value is None or value == "":
-        return None
+def _parse_float(value: str, field: str) -> float:
     try:
         return float(value)
-    except ValueError as exc:  # pragma: no cover - defensive guard
-        raise ValueError(f"Invalid float value: {value}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid numeric value for '{field}': {value}") from exc
 
 
-def parse_date(value: Optional[str]) -> Optional[date]:
+def _parse_decimal(value: str, field: str) -> Decimal:
+    try:
+        amount = Decimal(value)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"Invalid monetary value for '{field}': {value}") from exc
+    return amount
+
+
+def _parse_date(value: Optional[str]) -> Optional[date]:
     if value is None or value == "":
         return None
     try:
@@ -100,54 +192,35 @@ def parse_date(value: Optional[str]) -> Optional[date]:
         raise ValueError(f"Invalid date value: {value}") from exc
 
 
-def vehicle_from_row(row: Dict[str, str]) -> Vehicle:
-    """Create a :class:`Vehicle` instance from a CSV row."""
+def _format_money(amount: Decimal) -> str:
+    # Normalise the representation to avoid exponential notation in JSON.
+    quantised = amount.normalize()
+    return format(quantised, "f")
 
-    required = {
-        "configurationNumber": row.get("configurationNumber"),
-        "vin": row.get("vin"),
-        "make": row.get("make"),
-        "model": row.get("model"),
-        "manufactureYear": row.get("manufactureYear"),
+
+def _normalise_enum(value: str) -> str:
+    return value.strip().upper()
+
+
+def _normalise_optional_enum(value: Optional[str]) -> Optional[str]:
+    if value is None or value.strip() == "":
+        return None
+    return _normalise_enum(value)
+
+
+def _normalise_drive_wheels(value: str) -> str:
+    cleaned = value.strip().lower()
+    mapping = {
+        "4x4": "FOUR",
+        "4wd": "FOUR",
+        "awd": "FOUR",
+        "four": "FOUR",
+        "front": "FRONT",
+        "fwd": "FRONT",
+        "rear": "REAR",
+        "rwd": "REAR",
+        "back": "REAR",
     }
-
-    missing = [key for key, value in required.items() if not value]
-    if missing:
-        raise ValueError(f"Missing required CSV fields: {', '.join(missing)}")
-
-    return Vehicle(
-        external_id=required["configurationNumber"],
-        vin=required["vin"],
-        make=required["make"],
-        model=required["model"],
-        manufacture_year=int(required["manufactureYear"]),
-        mileage=parse_int(row.get("mileage")),
-        fuel_type=row.get("fuelType"),
-        power=parse_int(row.get("power")),
-        transmission_type=row.get("transmissionType"),
-        drive_wheels=row.get("driveWheels"),
-        vehicle_type=row.get("type"),
-        car_class=row.get("carClass"),
-        doors=parse_int(row.get("doors")),
-        color=row.get("color"),
-        available_from=parse_date(row.get("availableFrom")),
-        first_registration_date=parse_date(row.get("firstRegistrationDate")),
-        description=row.get("description"),
-        list_price=parse_float(row.get("pricing_listPrice")),
-        sales_price=parse_float(row.get("pricing_salesPrice")),
-        mini_price=parse_float(row.get("pricing_miniPrice")),
-        location_id=row.get("locationId"),
-    )
-
-
-def unique_external_ids(vehicles: Iterable[Vehicle]) -> Dict[str, Vehicle]:
-    """Return a dictionary of vehicles keyed by their external identifier."""
-
-    result: Dict[str, Vehicle] = {}
-    for vehicle in vehicles:
-        if vehicle.external_id in result:
-            raise ValueError(
-                f"Duplicate vehicle external id detected: {vehicle.external_id}"
-            )
-        result[vehicle.external_id] = vehicle
-    return result
+    if cleaned in mapping:
+        return mapping[cleaned]
+    return _normalise_enum(value)

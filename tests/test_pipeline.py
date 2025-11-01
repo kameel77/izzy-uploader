@@ -1,129 +1,108 @@
-from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 from typing import Dict, List
 
 from izzy_uploader.models import Vehicle
 from izzy_uploader.pipelines.import_pipeline import PipelineReport, VehicleSynchronizer
+from izzy_uploader.state import VehicleStateStore
 
 
-@dataclass
 class FakeClient:
-    vehicles: Dict[str, Dict[str, object]]
-    created: List[str]
-    updated: List[str]
-    closed: List[str]
-    price_updates: List[Dict[str, object]]
+    def __init__(self) -> None:
+        self.created: Dict[str, Vehicle] = {}
+        self.updated: Dict[str, Vehicle] = {}
+        self.deleted: List[str] = []
 
-    def build_vehicle_lookup(self) -> Dict[str, Dict[str, object]]:
-        return dict(self.vehicles)
+    def create_vehicle(self, vehicle: Vehicle) -> str:
+        car_id = f"id-{vehicle.vin}"
+        self.created[vehicle.vin] = vehicle
+        return car_id
 
-    def create_vehicle(self, vehicle: Vehicle) -> None:
-        self.created.append(vehicle.external_id)
-        self.vehicles[vehicle.external_id] = {"externalId": vehicle.external_id, "pricing": {"salesPrice": vehicle.sales_price}}
+    def update_vehicle(self, car_id: str, vehicle: Vehicle) -> None:
+        self.updated[car_id] = vehicle
 
-    def update_vehicle(self, vehicle: Vehicle) -> None:
-        self.updated.append(vehicle.external_id)
-        self.vehicles[vehicle.external_id] = {"externalId": vehicle.external_id, "pricing": {"salesPrice": vehicle.sales_price}}
-
-    def close_vehicle(self, external_id: str) -> None:
-        self.closed.append(external_id)
-        self.vehicles.pop(external_id, None)
-
-    def update_price(self, external_id: str, price: float, notify_discount: bool) -> None:
-        self.price_updates.append({"external_id": external_id, "price": price, "notify_discount": notify_discount})
-        self.vehicles[external_id]["pricing"]["salesPrice"] = price
+    def delete_vehicle(self, car_id: str) -> None:
+        self.deleted.append(car_id)
 
 
-def make_vehicle(external_id: str, sales_price: float) -> Vehicle:
+def make_vehicle(vin: str, sales_price: str, *, configuration_number: str | None = None) -> Vehicle:
     return Vehicle(
-        external_id=external_id,
-        vin="VIN-" + external_id,
+        configuration_number=configuration_number,
+        vin=vin,
+        category="PASSENGER",
         make="Test",
         model="Model",
         manufacture_year=2020,
-        mileage=None,
-        fuel_type=None,
-        power=None,
-        transmission_type=None,
-        drive_wheels=None,
-        vehicle_type=None,
-        car_class=None,
-        doors=None,
-        color=None,
-        available_from=None,
-        first_registration_date=None,
-        description=None,
-        list_price=None,
-        sales_price=sales_price,
-        mini_price=None,
-        location_id=None,
+        mileage=1000,
+        engine_code="ECODE",
+        cubic_capacity=1998.0,
+        acceleration=7.2,
+        fuel_type="PETROL",
+        power=180,
+        transmission_type="AUTOMATIC",
+        drive_wheels="FRONT",
+        vehicle_type="SALOON",
+        doors=4,
+        color="Blue",
+        list_price=Decimal("200000"),
+        sales_price=Decimal(sales_price),
     )
 
 
-def test_pipeline_creates_and_updates(tmp_path) -> None:
-    client = FakeClient(
-        vehicles={
-            "B": {"externalId": "B", "pricing": {"salesPrice": 15000.0}},
-        },
-        created=[],
-        updated=[],
-        closed=[],
-        price_updates=[],
-    )
-    synchronizer = VehicleSynchronizer(client)  # type: ignore[arg-type]
+def test_pipeline_creates_and_updates(tmp_path: Path) -> None:
+    client = FakeClient()
+    state_store = VehicleStateStore(tmp_path / "state.json")
+    # Pre-populate state so VIN-B is treated as existing.
+    state_store.upsert("VIN-B", "id-VIN-B", "B")
 
-    vehicles = [make_vehicle("A", 12000.0), make_vehicle("B", 14000.0)]
+    synchronizer = VehicleSynchronizer(client, state_store)
+    vehicles = [
+        make_vehicle("VIN-A", "180000", configuration_number="A"),
+        make_vehicle("VIN-B", "170000", configuration_number="B"),
+    ]
+
     report = synchronizer.run(vehicles, close_missing=True, update_prices=True)
 
     assert isinstance(report, PipelineReport)
     assert report.created == 1
     assert report.updated == 1
-    assert report.closed == 0  # because CSV had both A and B
-    assert report.price_updates == 1
+    assert report.closed == 0
     assert report.errors == []
 
-    assert client.created == ["A"]
-    assert client.updated == ["B"]
-    assert client.price_updates == [
-        {"external_id": "B", "price": 14000.0, "notify_discount": True}
-    ]
+    assert "VIN-A" in client.created
+    assert "id-VIN-B" in client.updated
+    # Ensure state now remembers VIN-A as well.
+    assert state_store.get_car_id("VIN-A") == "id-VIN-A"
 
 
-def test_pipeline_closes_missing_when_requested() -> None:
-    client = FakeClient(
-        vehicles={
-            "A": {"externalId": "A", "pricing": {"salesPrice": 10000.0}},
-            "B": {"externalId": "B", "pricing": {"salesPrice": 10000.0}},
-        },
-        created=[],
-        updated=[],
-        closed=[],
-        price_updates=[],
-    )
-    synchronizer = VehicleSynchronizer(client)  # type: ignore[arg-type]
+def test_pipeline_closes_missing_when_requested(tmp_path: Path) -> None:
+    client = FakeClient()
+    state_store = VehicleStateStore(tmp_path / "state.json")
+    state_store.upsert("VIN-A", "id-VIN-A", "A")
+    state_store.upsert("VIN-B", "id-VIN-B", "B")
 
-    vehicles = [make_vehicle("A", 10000.0)]
-    report = synchronizer.run(vehicles, close_missing=True, update_prices=False)
+    synchronizer = VehicleSynchronizer(client, state_store)
+    vehicles = [make_vehicle("VIN-A", "150000", configuration_number="A")]
+
+    report = synchronizer.run(vehicles, close_missing=True)
 
     assert report.closed == 1
-    assert client.closed == ["B"]
+    assert client.deleted == ["id-VIN-B"]
+    assert state_store.get_car_id("VIN-B") is None
 
 
-def test_pipeline_collects_errors_when_api_fails() -> None:
+def test_pipeline_collects_errors_when_api_fails(tmp_path: Path) -> None:
     class FailingClient(FakeClient):
-        def update_vehicle(self, vehicle: Vehicle) -> None:
+        def update_vehicle(self, car_id: str, vehicle: Vehicle) -> None:
             raise RuntimeError("boom")
 
-    client = FailingClient(
-        vehicles={"A": {"externalId": "A", "pricing": {"salesPrice": 10000.0}}},
-        created=[],
-        updated=[],
-        closed=[],
-        price_updates=[],
-    )
-    synchronizer = VehicleSynchronizer(client)  # type: ignore[arg-type]
+    client = FailingClient()
+    state_store = VehicleStateStore(tmp_path / "state.json")
+    state_store.upsert("VIN-A", "id-VIN-A", "A")
 
-    vehicles = [make_vehicle("A", 10000.0)]
-    report = synchronizer.run(vehicles, close_missing=False, update_prices=False)
+    synchronizer = VehicleSynchronizer(client, state_store)
+    vehicles = [make_vehicle("VIN-A", "150000", configuration_number="A")]
+    report = synchronizer.run(vehicles, close_missing=False)
 
     assert report.updated == 0
     assert report.errors

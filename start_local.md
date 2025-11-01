@@ -54,18 +54,22 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
 
 ## 5. Przygotowanie danych i konfiguracji
 1. Przygotuj plik CSV z pojazdami. Dla testów możesz skopiować plik nagłówków z `_Planning/izzylease_lista_pol_import_pojazdow.csv` i wypełnić wiersze danymi.
-2. Ustaw wymagane zmienne środowiskowe, aby aplikacja znała adres API i klucz dostępu:
+2. Ustaw wymagane zmienne środowiskowe, aby aplikacja znała adres API i dane do autoryzacji:
    - Windows (PowerShell):
      ```powershell
      $Env:IZZYLEASE_API_BASE_URL = "https://twoj-serwer.izzylease.example"
-     $Env:IZZYLEASE_API_KEY = "TWOJ_TAJNY_KLUCZ"
+     $Env:IZZYLEASE_CLIENT_ID = "<client_id_z_pliku_konfiguracyjnego>"
+     $Env:IZZYLEASE_CLIENT_SECRET = "<client_secret_z_pliku_konfiguracyjnego>"
+     $Env:IZZYLEASE_STATE_FILE = "$env:USERPROFILE\\.izzy_uploader\\state.json"
      ```
    - macOS/Linux:
      ```bash
      export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"
-     export IZZYLEASE_API_KEY="TWOJ_TAJNY_KLUCZ"
+     export IZZYLEASE_CLIENT_ID="<client_id_z_pliku_konfiguracyjnego>"
+     export IZZYLEASE_CLIENT_SECRET="<client_secret_z_pliku_konfiguracyjnego>"
+     export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
      ```
-   Jeśli nie masz jeszcze danych dostępowych, poproś administratora platformy Izzylease.
+   Zmienna `IZZYLEASE_STATE_FILE` jest opcjonalna – jeśli jej nie ustawisz, aplikacja zapisze lokalne mapowanie VIN → car_id w katalogu domowym. Jeżeli nie masz jeszcze danych dostępowych (`client_id`/`client_secret`), poproś administratora platformy Izzylease.
 
 ## 6. Uruchomienie narzędzia
 Podstawowa komenda uruchamiająca proces synchronizacji wygląda tak:

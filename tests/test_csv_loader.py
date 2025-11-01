@@ -1,7 +1,6 @@
+from decimal import Decimal
 from pathlib import Path
 from textwrap import dedent
-
-import pytest
 
 from izzy_uploader.csv_loader import load_vehicles_from_csv
 
@@ -9,8 +8,8 @@ from izzy_uploader.csv_loader import load_vehicles_from_csv
 def test_loads_valid_vehicle(tmp_path: Path) -> None:
     csv_content = dedent(
         """
-        configurationNumber,vin,make,model,manufactureYear,pricing_salesPrice
-        V1,1FTFW1E50JFC12345,Ford,F-150,2019,12345.67
+        configurationNumber,vin,category,make,model,manufactureYear,mileage,engineCode,cubicCapacity,acceleration,fuelType,power,transmissionType,driveWheels,type,doors,color,pricing_listPrice,pricing_salesPrice
+        CONF-1,WBA8E31030K792716,PASSENGER,BMW,Seria 3,2020,15000,B48,1998,7.2,PETROL,184,AUTOMATIC,REAR,SALOON,4,Blue,200000.00,189999.99
         """
     ).strip()
     path = tmp_path / "vehicles.csv"
@@ -20,16 +19,20 @@ def test_loads_valid_vehicle(tmp_path: Path) -> None:
 
     assert not errors
     assert len(vehicles) == 1
+
     vehicle = vehicles[0]
-    assert vehicle.external_id == "V1"
-    assert vehicle.sales_price == pytest.approx(12345.67)
+    assert vehicle.configuration_number == "CONF-1"
+    assert vehicle.vin == "WBA8E31030K792716"
+    assert vehicle.category == "PASSENGER"
+    assert vehicle.list_price == Decimal("200000.00")
+    assert vehicle.sales_price == Decimal("189999.99")
 
 
 def test_invalid_rows_return_errors(tmp_path: Path) -> None:
     csv_content = dedent(
         """
-        configurationNumber,vin,make,model,manufactureYear
-        ,,Ford,F-150,2019
+        configurationNumber,vin,category,make,model,manufactureYear,mileage,engineCode,cubicCapacity,acceleration,fuelType,power,transmissionType,driveWheels,type,doors,color,pricing_listPrice,pricing_salesPrice
+        CONF-1,,PASSENGER,BMW,Seria 3,2020,15000,B48,1998,7.2,PETROL,184,AUTOMATIC,REAR,SALOON,4,Blue,200000.00,189999.99
         """
     ).strip()
     path = tmp_path / "vehicles.csv"

@@ -3,62 +3,59 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Optional
 from urllib import error, request
 
+from .auth import OAuthTokenProvider, default_ssl_context
 from .config import ServiceConfig
-from .models import Vehicle
+from .models import CarRemovalReason, Vehicle
 
 LOGGER = logging.getLogger(__name__)
 
 
 class IzzyleaseClient:
-    """Wrapper around the Izzylease API."""
+    """Wrapper around the Izzylease dealer API."""
 
-    def __init__(self, config: ServiceConfig):
+    def __init__(self, config: ServiceConfig, token_provider: Optional[OAuthTokenProvider] = None):
         self._config = config
+        self._token_provider = token_provider or OAuthTokenProvider(
+            config.token_url,
+            config.client_id,
+            config.client_secret,
+            timeout=config.timeout,
+        )
+        self._ssl_context = default_ssl_context()
 
-    # -- API helpers -----------------------------------------------------
-    def list_vehicles(self) -> List[Dict[str, Any]]:
-        return self._request("GET", "/vehicles")
+    # -- API helpers -------------------------------------------------
+    def create_vehicle(self, vehicle: Vehicle) -> str:
+        """Create a vehicle and return the created car identifier."""
 
-    def create_vehicle(self, vehicle: Vehicle) -> Dict[str, Any]:
-        LOGGER.debug("Creating vehicle %s", vehicle.external_id)
-        return self._request("POST", "/vehicles", json_payload=vehicle.to_api_payload())
+        LOGGER.debug("Creating vehicle %s", vehicle.configuration_number or vehicle.vin)
+        payload = vehicle.to_api_payload()
+        response = self._request("POST", "/external/cars", json_payload=payload)
+        try:
+            return str(response["id"])
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError("Unexpected response while creating vehicle") from exc
 
-    def update_vehicle(self, vehicle: Vehicle) -> Dict[str, Any]:
-        LOGGER.debug("Updating vehicle %s", vehicle.external_id)
-        return self._request(
+    def update_vehicle(self, car_id: str, vehicle: Vehicle) -> None:
+        """Update an existing vehicle."""
+
+        LOGGER.debug("Updating vehicle %s", car_id)
+        self._request(
             "PUT",
-            f"/vehicles/{vehicle.external_id}",
+            f"/external/cars/{car_id}",
             json_payload=vehicle.to_api_payload(),
         )
 
-    def close_vehicle(self, external_id: str) -> Dict[str, Any]:
-        LOGGER.debug("Closing vehicle %s", external_id)
-        return self._request("POST", f"/vehicles/{external_id}/close")
+    def delete_vehicle(self, car_id: str, reason: CarRemovalReason = CarRemovalReason.DELETED) -> None:
+        """Remove a vehicle from the platform."""
 
-    def update_price(
-        self, external_id: str, price: float, notify_discount: bool
-    ) -> Dict[str, Any]:
-        LOGGER.debug(
-            "Updating price for vehicle %s (price=%s, discount=%s)",
-            external_id,
-            price,
-            notify_discount,
-        )
-        return self._request(
-            "POST",
-            f"/vehicles/{external_id}/price",
-            json_payload={"price": price, "notifyDiscount": notify_discount},
-        )
+        LOGGER.debug("Deleting vehicle %s with reason %s", car_id, reason.value)
+        body: Dict[str, Any] = {"reason": reason.value}
+        self._request("DELETE", f"/external/cars/{car_id}", json_payload=body)
 
-    # -- Utility helpers -------------------------------------------------
-    def build_vehicle_lookup(self) -> Dict[str, Dict[str, Any]]:
-        """Return a lookup table by external id for active vehicles."""
-
-        return {item["externalId"]: item for item in self.list_vehicles()}
-
+    # -- HTTP helper -------------------------------------------------
     def _request(
         self,
         method: str,
@@ -69,7 +66,7 @@ class IzzyleaseClient:
         url = f"{self._config.api_base_url}{path}"
         data: Optional[bytes] = None
         headers = {
-            "Authorization": f"Bearer {self._config.api_key}",
+            "Authorization": f"Bearer {self._token_provider.get_token()}",
             "Accept": "application/json",
         }
         if json_payload is not None:
@@ -79,7 +76,9 @@ class IzzyleaseClient:
         LOGGER.debug("Request %s %s payload=%s", method, url, json_payload)
         req = request.Request(url, data=data, headers=headers, method=method)
         try:
-            with request.urlopen(req, timeout=self._config.timeout) as resp:  # type: ignore[arg-type]
+            with request.urlopen(  # type: ignore[arg-type]
+                req, timeout=self._config.timeout, context=self._ssl_context
+            ) as resp:
                 raw = resp.read()
                 if not raw:
                     return {}
@@ -91,10 +90,3 @@ class IzzyleaseClient:
             ) from exc
         except error.URLError as exc:  # pragma: no cover - network failure path
             raise RuntimeError(f"API request failed: {exc.reason}") from exc
-
-
-class VehicleRepositoryProtocol:
-    """Protocol implemented by repositories that provide vehicle data."""
-
-    def list(self) -> Iterable[Vehicle]:  # pragma: no cover - interface definition
-        raise NotImplementedError

@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Iterable, List, Set
 
 from ..client import IzzyleaseClient
-from ..models import Vehicle, unique_external_ids
+from ..models import Vehicle, unique_vins
+from ..state import VehicleStateStore
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,11 +18,11 @@ class PipelineReport:
 
     created: int = 0
     updated: int = 0
-    price_updates: int = 0
+    price_updates: int = 0  # kept for CLI compatibility, always zero in new flow
     closed: int = 0
     errors: List[str] = field(default_factory=list)
 
-    def as_dict(self) -> Dict[str, int]:
+    def as_dict(self) -> dict[str, int]:
         return {
             "created": self.created,
             "updated": self.updated,
@@ -34,100 +35,73 @@ class PipelineReport:
 class VehicleSynchronizer:
     """Coordinates vehicle synchronisation with the remote API."""
 
-    def __init__(self, client: IzzyleaseClient):
+    def __init__(self, client: IzzyleaseClient, state_store: VehicleStateStore):
         self._client = client
+        self._state_store = state_store
 
     def run(
         self,
         vehicles: Iterable[Vehicle],
         *,
         close_missing: bool = False,
-        update_prices: bool = False,
+        update_prices: bool = False,  # retained for backward compatibility
     ) -> PipelineReport:
         report = PipelineReport()
+
         try:
-            vehicle_lookup = self._client.build_vehicle_lookup()
-        except Exception as exc:  # pylint: disable=broad-except
-            report.errors.append(f"Failed to fetch remote vehicles: {exc}")
+            desired = unique_vins(vehicles)
+        except ValueError as exc:
+            report.errors.append(str(exc))
             return report
 
-        desired = unique_external_ids(vehicles)
-        existing_ids: Set[str] = set(vehicle_lookup)
-
         for vehicle in desired.values():
-            if vehicle.external_id in existing_ids:
-                self._handle_existing_vehicle(vehicle, vehicle_lookup, report, update_prices)
-            else:
-                self._handle_new_vehicle(vehicle, report)
+            self._upsert_vehicle(vehicle, report)
 
         if close_missing:
-            to_close = existing_ids - set(desired)
-            for external_id in to_close:
-                self._close_vehicle(external_id, report)
+            self._close_missing_vehicles(set(desired), report)
+
+        try:
+            self._state_store.save()
+        except Exception as exc:  # pylint: disable=broad-except
+            LOGGER.exception("Failed to persist vehicle state")
+            report.errors.append(f"Failed to persist synchronisation state: {exc}")
 
         return report
 
     # -- helpers ---------------------------------------------------------
-    def _handle_existing_vehicle(
-        self,
-        vehicle: Vehicle,
-        vehicle_lookup: Dict[str, Dict[str, object]],
-        report: PipelineReport,
-        update_prices: bool,
-    ) -> None:
-        try:
-            self._client.update_vehicle(vehicle)
-            report.updated += 1
-        except Exception as exc:  # pylint: disable=broad-except
-            LOGGER.exception("Failed to update vehicle %s", vehicle.external_id)
-            report.errors.append(f"{vehicle.external_id}: update failed: {exc}")
-            return
+    def _upsert_vehicle(self, vehicle: Vehicle, report: PipelineReport) -> None:
+        vin_label = vehicle.vin
+        state_car_id = self._state_store.get_car_id(vin_label)
+        car_label = vehicle.configuration_number or vin_label
 
-        if not update_prices:
-            return
+        if state_car_id:
+            try:
+                self._client.update_vehicle(state_car_id, vehicle)
+                report.updated += 1
+            except Exception as exc:  # pylint: disable=broad-except
+                LOGGER.exception("Failed to update vehicle %s", car_label)
+                report.errors.append(f"{car_label}: update failed: {exc}")
+        else:
+            try:
+                created_id = self._client.create_vehicle(vehicle)
+            except Exception as exc:  # pylint: disable=broad-except
+                LOGGER.exception("Failed to create vehicle %s", car_label)
+                report.errors.append(f"{car_label}: creation failed: {exc}")
+                return
 
-        current = vehicle_lookup.get(vehicle.external_id, {})
-        current_price = _extract_price(current)
-        if vehicle.sales_price is None:
-            return
-
-        notify_discount = vehicle.requires_price_discount_flag(current_price)
-        if current_price is not None and current_price == vehicle.sales_price and not notify_discount:
-            return
-
-        try:
-            self._client.update_price(
-                vehicle.external_id, vehicle.sales_price, notify_discount
-            )
-            report.price_updates += 1
-        except Exception as exc:  # pylint: disable=broad-except
-            LOGGER.exception("Failed to update price for %s", vehicle.external_id)
-            report.errors.append(f"{vehicle.external_id}: price update failed: {exc}")
-
-    def _handle_new_vehicle(self, vehicle: Vehicle, report: PipelineReport) -> None:
-        try:
-            self._client.create_vehicle(vehicle)
+            self._state_store.upsert(vin_label, created_id, vehicle.configuration_number)
             report.created += 1
-        except Exception as exc:  # pylint: disable=broad-except
-            LOGGER.exception("Failed to create vehicle %s", vehicle.external_id)
-            report.errors.append(f"{vehicle.external_id}: creation failed: {exc}")
 
-    def _close_vehicle(self, external_id: str, report: PipelineReport) -> None:
-        try:
-            self._client.close_vehicle(external_id)
-            report.closed += 1
-        except Exception as exc:  # pylint: disable=broad-except
-            LOGGER.exception("Failed to close vehicle %s", external_id)
-            report.errors.append(f"{external_id}: close failed: {exc}")
-
-
-def _extract_price(vehicle_payload: Dict[str, object]) -> Optional[float]:
-    pricing = vehicle_payload.get("pricing") if isinstance(vehicle_payload, dict) else None
-    if isinstance(pricing, dict):
-        value = pricing.get("salesPrice")
-        try:
-            return float(value) if value is not None else None
-        except (TypeError, ValueError):  # pragma: no cover - defensive guard
-            LOGGER.warning("Unexpected price value for payload %s", vehicle_payload)
-            return None
-    return None
+    def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
+        known_vins = set(self._state_store.known_vins())
+        for vin in known_vins - desired_vins:
+            car_id = self._state_store.get_car_id(vin)
+            if not car_id:
+                continue
+            try:
+                self._client.delete_vehicle(car_id)
+                self._state_store.remove(vin)
+                report.closed += 1
+            except Exception as exc:  # pylint: disable=broad-except
+                LOGGER.exception("Failed to delete vehicle with VIN %s", vin)
+                report.errors.append(f"{vin}: deletion failed: {exc}")
