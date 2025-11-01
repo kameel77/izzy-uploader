@@ -44,7 +44,7 @@ def sync_command(csv_path: Path, close_missing: bool, update_prices: bool, as_js
 
 def _emit_report(report: PipelineReport, *, as_json: bool) -> None:
     if as_json:
-        click.echo(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+        click.echo(json.dumps(report.as_dict(include_details=True), ensure_ascii=False, indent=2))
     else:
         click.echo("Synchronisation finished:")
         for key, value in report.as_dict().items():

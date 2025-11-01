@@ -68,6 +68,9 @@ def test_pipeline_creates_and_updates(tmp_path: Path) -> None:
     assert report.updated == 1
     assert report.closed == 0
     assert report.errors == []
+    assert report.created_vehicles == [{"vin": "VIN-A", "car_id": "id-VIN-A"}]
+    assert report.updated_vehicles == [{"vin": "VIN-B", "car_id": "id-VIN-B"}]
+    assert report.deleted_vehicles == []
 
     assert "VIN-A" in client.created
     assert "id-VIN-B" in client.updated
@@ -89,6 +92,7 @@ def test_pipeline_closes_missing_when_requested(tmp_path: Path) -> None:
     assert report.closed == 1
     assert client.deleted == ["id-VIN-B"]
     assert state_store.get_car_id("VIN-B") is None
+    assert report.deleted_vehicles == [{"vin": "VIN-B", "car_id": "id-VIN-B"}]
 
 
 def test_pipeline_collects_errors_when_api_fails(tmp_path: Path) -> None:
