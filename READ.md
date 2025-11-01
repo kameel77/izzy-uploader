@@ -49,6 +49,20 @@ klienta HTTP oraz orkiestrator procesów z wierszem poleceń.
 - Identyfikatory lokalizacji przekazywane przez partnerów można odwzorować na UUID salonów Izzylease w pliku `config/location_map.json` (wzorzec: `config/location_map.sample.json`). Ścieżkę do własnego pliku możesz wskazać zmienną `IZZYLEASE_LOCATION_MAP_FILE`.
 - Brakujące mapowania są automatycznie pomijane (pole nie trafi do payloadu).
 
+## Webowy interfejs (opcjonalnie)
+1. Zainstaluj zależności interfejsu:
+   ```bash
+   pip install -e .[web]
+   ```
+2. Uruchom aplikację Flask (korzysta z tych samych zmiennych środowiskowych co CLI):
+   ```bash
+   export FLASK_APP=izzy_uploader_web.app
+   flask run  # domyślnie http://127.0.0.1:5000
+   ```
+3. W UI wybierz plik CSV, wskaż opcje synchronizacji i pobierz wygenerowany raport JSON lub podejrzyj go w przeglądarce.
+
+Na produkcji możesz uruchomić `gunicorn izzy_uploader_web:create_app()` za reverse proxy (np. nginx).
+
 ## Testy
 Testy jednostkowe można uruchomić poleceniem:
 ```

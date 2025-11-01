@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <form method="post" action="{{ url_for('web.upload') }}" enctype="multipart/form-data">
+    <label for="file">Plik CSV</label>
+    <input id="file" type="file" name="file" accept=".csv" required />
+
+    <div>
+      <label>
+        <input type="checkbox" name="close_missing" /> Zamknij pojazdy spoza pliku (--close-missing)
+      </label>
+    </div>
+    <div>
+      <label>
+        <input type="checkbox" name="update_prices" /> Aktualizuj ceny (--update-prices)
+      </label>
+    </div>
+
+    <button type="submit">Przetwórz CSV</button>
+  </form>
+{% endblock %}

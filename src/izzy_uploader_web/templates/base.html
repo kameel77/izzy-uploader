@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or 'Izzy Uploader' }}</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 800px; padding: 0 1rem; }
+      header { margin-bottom: 2rem; }
+      form { margin-top: 1rem; }
+      label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+      input[type="file"] { margin-bottom: 1rem; }
+      button { background: #1f76d1; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; }
+      button:hover { background: #175ca3; }
+      .flash { padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 4px; }
+      .flash.error { background: #ffe0e0; color: #8a1f1f; }
+      .flash.success { background: #e1f7e7; color: #196c36; }
+      pre { background: #f7f7f7; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+      .summary { margin: 1rem 0; }
+      .summary ul { list-style: none; padding: 0; }
+      .summary li { margin: 0.25rem 0; }
+      footer { margin-top: 3rem; font-size: 0.85rem; color: #777; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{{ title or 'Izzy Uploader' }}</h1>
+      <p>Załaduj plik CSV, aby przetworzyć dane i wygenerować raport JSON.</p>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+    <footer>
+      <p>UI pilotskie dla Izzy Uploader. Wymaga poprawnie ustawionych zmiennych środowiskowych tak jak wersja CLI.</p>
+    </footer>
+  </body>
+</html>

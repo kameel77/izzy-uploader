@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  {% if errors %}
+    <h2>Błędy walidacji CSV</h2>
+    <ul>
+      {% for error in errors %}
+        <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+    <p><a href="{{ url_for('web.index') }}">Powrót</a></p>
+  {% else %}
+    <h2>Raport synchronizacji</h2>
+    <div class="summary">
+      <ul>
+        <li>Utworzone: {{ summary.created }}</li>
+        <li>Zaktualizowane: {{ summary.updated }}</li>
+        <li>Zamknięte: {{ summary.closed }}</li>
+        <li>Błędy: {{ summary.errors }}</li>
+      </ul>
+    </div>
+    <p>
+      <a href="{{ url_for('web.download', report_id=report_id) }}">Pobierz raport JSON</a>
+    </p>
+    <h3>Podgląd JSON</h3>
+    <pre>{{ report }}</pre>
+    <p><a href="{{ url_for('web.index') }}">Przetwórz kolejny plik</a></p>
+  {% endif %}
+{% endblock %}

@@ -75,6 +75,18 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
 
    Jeżeli partner dostarcza własne identyfikatory salonów, przygotuj plik `config/location_map.json` (możesz skopiować wzorzec `config/location_map.sample.json`) i wypełnij go mapowaniem `"partner_id": "uuid_salon"`.
 
+## 6a. Uruchomienie interfejsu webowego (opcjonalnie)
+1. Zainstaluj zależności dodatkowe:
+   ```bash
+   pip install -e .[web]
+   ```
+2. Uruchom aplikację Flask:
+   ```bash
+   export FLASK_APP=izzy_uploader_web.app
+   flask run
+   ```
+3. Wejdź na `http://127.0.0.1:5000`, wybierz plik CSV i pobierz raport JSON.
+
 ## 6. Uruchomienie narzędzia
 Podstawowa komenda uruchamiająca proces synchronizacji wygląda tak:
 ```bash
