@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Iterable, List, Set
+from typing import Iterable, List, Optional, Set
 
 from ..client import IzzyleaseClient
 from ..models import Vehicle, unique_vins
@@ -21,6 +21,7 @@ class PipelineReport:
     price_updates: int = 0  # kept for CLI compatibility, always zero in new flow
     closed: int = 0
     errors: List[str] = field(default_factory=list)
+    error_details: List[dict] = field(default_factory=list)
     created_vehicles: List[dict] = field(default_factory=list)
     updated_vehicles: List[dict] = field(default_factory=list)
     deleted_vehicles: List[dict] = field(default_factory=list)
@@ -38,6 +39,7 @@ class PipelineReport:
                 "created": self.created_vehicles,
                 "updated": self.updated_vehicles,
                 "deleted": self.deleted_vehicles,
+                "errors": self.error_details,
             }
         return payload
 
@@ -61,7 +63,7 @@ class VehicleSynchronizer:
         try:
             desired = unique_vins(vehicles)
         except ValueError as exc:
-            report.errors.append(str(exc))
+            self._record_error(report, None, None, str(exc))
             return report
 
         for vehicle in desired.values():
@@ -74,7 +76,12 @@ class VehicleSynchronizer:
             self._state_store.save()
         except Exception as exc:  # pylint: disable=broad-except
             LOGGER.exception("Failed to persist vehicle state")
-            report.errors.append(f"Failed to persist synchronisation state: {exc}")
+            self._record_error(
+                report,
+                None,
+                None,
+                f"Failed to persist synchronisation state: {exc}",
+            )
 
         return report
 
@@ -90,21 +97,34 @@ class VehicleSynchronizer:
                 report.updated += 1
                 report.updated_vehicles.append({"vin": vin_label, "car_id": state_car_id})
                 self._state_store.mark_active(vin_label)
+                return
             except Exception as exc:  # pylint: disable=broad-except
+                if _is_not_found_error(exc):
+                    LOGGER.info(
+                        "Remote vehicle %s missing; attempting to recreate it", car_label
+                    )
+                    self._recreate_vehicle(vehicle, vin_label, report)
+                    return
                 LOGGER.exception("Failed to update vehicle %s", car_label)
-                report.errors.append(f"{car_label}: update failed: {exc}")
-        else:
-            try:
-                created_id = self._client.create_vehicle(vehicle)
-            except Exception as exc:  # pylint: disable=broad-except
-                LOGGER.exception("Failed to create vehicle %s", car_label)
-                report.errors.append(f"{car_label}: creation failed: {exc}")
+                self._record_error(report, vin_label, state_car_id, f"update failed: {exc}")
                 return
 
-            self._state_store.upsert(vin_label, created_id, vehicle.configuration_number)
-            report.created += 1
-            report.created_vehicles.append({"vin": vin_label, "car_id": created_id})
-            self._state_store.mark_active(vin_label)
+        # No known car id – create fresh record.
+        self._recreate_vehicle(vehicle, vin_label, report)
+
+    def _recreate_vehicle(self, vehicle: Vehicle, vin_label: str, report: PipelineReport) -> None:
+        car_label = vehicle.configuration_number or vin_label
+        try:
+            created_id = self._client.create_vehicle(vehicle)
+        except Exception as exc:  # pylint: disable=broad-except
+            LOGGER.exception("Failed to create vehicle %s", car_label)
+            self._record_error(report, vin_label, None, f"creation failed: {exc}")
+            return
+
+        self._state_store.upsert(vin_label, created_id, vehicle.configuration_number)
+        report.created += 1
+        report.created_vehicles.append({"vin": vin_label, "car_id": created_id})
+        self._state_store.mark_active(vin_label)
 
     def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
         known_vins = set(self._state_store.known_vins())
@@ -119,4 +139,25 @@ class VehicleSynchronizer:
                 report.deleted_vehicles.append({"vin": vin, "car_id": car_id})
             except Exception as exc:  # pylint: disable=broad-except
                 LOGGER.exception("Failed to delete vehicle with VIN %s", vin)
-                report.errors.append(f"{vin}: deletion failed: {exc}")
+                self._record_error(report, vin, car_id, f"deletion failed: {exc}")
+
+    def _record_error(
+        self,
+        report: PipelineReport,
+        vin: Optional[str],
+        car_id: Optional[str],
+        message: str,
+    ) -> None:
+        report.errors.append(message)
+        report.error_details.append(
+            {
+                "vin": vin,
+                "car_id": car_id,
+                "error_message": message,
+            }
+        )
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "status 404" in text or ("404" in text and "not found" in text)

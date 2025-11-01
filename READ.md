@@ -43,6 +43,12 @@ klienta HTTP oraz orkiestrator procesów z wierszem poleceń.
    ```
    Raport procesu zostanie wypisany w formacie tekstowym lub JSON.
 
+## Normalizacja danych partnerów
+- Wbudowana warstwa czyszczenia (`normalizers.py`) konwertuje wartości typu `150.00` → `150`, usuwa znaczniki `NULL`, mapuje polskie nazwy (`osobowy`, `Na przednie koła`, `Automatyczna…`) na wartości wymagane przez API Izzylease oraz skraca daty z czasem do formatu `YYYY-MM-DD`.
+- Brakujące `engineCode` uzupełniane są domyślną wartością `-`, aby przejść walidację API bez wprowadzania sztucznego opisu.
+- Identyfikatory lokalizacji przekazywane przez partnerów można odwzorować na UUID salonów Izzylease w pliku `config/location_map.json` (wzorzec: `config/location_map.sample.json`). Ścieżkę do własnego pliku możesz wskazać zmienną `IZZYLEASE_LOCATION_MAP_FILE`.
+- Brakujące mapowania są automatycznie pomijane (pole nie trafi do payloadu).
+
 ## Testy
 Testy jednostkowe można uruchomić poleceniem:
 ```

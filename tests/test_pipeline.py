@@ -113,6 +113,13 @@ def test_pipeline_collects_errors_when_api_fails(tmp_path: Path) -> None:
     assert report.updated == 0
     assert report.errors
     assert "update failed" in report.errors[0]
+    assert report.error_details == [
+        {
+            "vin": "VIN-A",
+            "car_id": "id-VIN-A",
+            "error_message": "update failed: boom",
+        }
+    ]
 
 
 def test_pipeline_reactivates_deleted_vehicle(tmp_path: Path) -> None:
@@ -129,4 +136,30 @@ def test_pipeline_reactivates_deleted_vehicle(tmp_path: Path) -> None:
     assert report.created == 0
     assert report.updated == 1
     assert report.updated_vehicles == [{"vin": "VIN-A", "car_id": "id-VIN-A"}]
+    assert "VIN-A" in list(state_store.known_vins())
+
+
+def test_pipeline_recreates_vehicle_if_remote_missing(tmp_path: Path) -> None:
+    class MissingClient(FakeClient):
+        def update_vehicle(self, car_id: str, vehicle: Vehicle) -> None:
+            raise RuntimeError("API request failed with status 404: Not Found")
+
+        def create_vehicle(self, vehicle: Vehicle) -> str:
+            car_id = f"new-{vehicle.vin}"
+            self.created[vehicle.vin] = vehicle
+            return car_id
+
+    client = MissingClient()
+    state_store = VehicleStateStore(tmp_path / "state.json")
+    state_store.upsert("VIN-A", "stale-id", "A")
+
+    synchronizer = VehicleSynchronizer(client, state_store)
+    vehicles = [make_vehicle("VIN-A", "150000", configuration_number="A")]
+
+    report = synchronizer.run(vehicles, close_missing=False)
+
+    assert report.created == 1
+    assert report.updated == 0
+    assert report.created_vehicles == [{"vin": "VIN-A", "car_id": "new-VIN-A"}]
+    assert state_store.get_car_id("VIN-A") == "new-VIN-A"
     assert "VIN-A" in list(state_store.known_vins())

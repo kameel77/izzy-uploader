@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
 from .models import Vehicle, vehicle_from_row
+from .normalizers import clean_row
 
 
 class CsvValidationError(Exception):
@@ -28,7 +29,7 @@ def load_vehicles_from_csv(path: Path) -> Tuple[List[Vehicle], List[str]]:
         for row in reader:
             line_number += 1
             try:
-                vehicles.append(vehicle_from_row(row))
+                vehicles.append(vehicle_from_row(clean_row(row)))
             except Exception as exc:  # pylint: disable=broad-except
                 errors.append(f"Line {line_number}: {exc}")
 

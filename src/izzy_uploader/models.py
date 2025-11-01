@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional
 
@@ -25,15 +25,15 @@ class Vehicle:
     model: str
     manufacture_year: int
     mileage: int
-    engine_code: str
+    engine_code: Optional[str]
     cubic_capacity: float
-    acceleration: float
+    acceleration: Optional[float]
     fuel_type: str
     power: int
     transmission_type: str
     drive_wheels: str
     vehicle_type: str
-    doors: int
+    doors: Optional[int]
     color: str
     list_price: Decimal
     sales_price: Decimal
@@ -101,15 +101,19 @@ def vehicle_from_row(row: Dict[str, str]) -> Vehicle:
     model = require("model")
     manufacture_year = _parse_int(require("manufactureYear"), "manufactureYear")
     mileage = _parse_int(require("mileage"), "mileage")
-    engine_code = require("engineCode")
+    engine_code = row.get("engineCode") or None
     cubic_capacity = _parse_float(require("cubicCapacity"), "cubicCapacity")
-    acceleration = _parse_float(require("acceleration"), "acceleration")
+    raw_acceleration = row.get("acceleration") or ""
+    acceleration = _parse_float(raw_acceleration, "acceleration") if raw_acceleration else 0.0
     fuel_type = _normalise_enum(require("fuelType"))
     power = _parse_int(require("power"), "power")
     transmission_type = _normalise_enum(require("transmissionType"))
     drive_wheels = _normalise_drive_wheels(require("driveWheels"))
     vehicle_type = _normalise_enum(require("type"))
-    doors = _parse_int(require("doors"), "doors")
+    raw_doors = row.get("doors") or ""
+    doors = _parse_int(raw_doors, "doors") if raw_doors else None
+    if doors == 0:
+        doors = None
     color = require("color")
     list_price = _parse_decimal(require("pricing_listPrice"), "pricing_listPrice")
     sales_price = _parse_decimal(require("pricing_salesPrice"), "pricing_salesPrice")
@@ -163,16 +167,18 @@ def _serialize_date(value: Optional[date]) -> Optional[str]:
 
 def _parse_int(value: str, field: str) -> int:
     try:
-        return int(value)
-    except ValueError as exc:
+        decimal_value = Decimal(value)
+    except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"Invalid integer value for '{field}': {value}") from exc
+    return int(decimal_value.to_integral_value(rounding=ROUND_HALF_UP))
 
 
 def _parse_float(value: str, field: str) -> float:
     try:
-        return float(value)
-    except ValueError as exc:
+        decimal_value = Decimal(value)
+    except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"Invalid numeric value for '{field}': {value}") from exc
+    return float(decimal_value)
 
 
 def _parse_decimal(value: str, field: str) -> Decimal:

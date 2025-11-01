@@ -68,8 +68,12 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
      export IZZYLEASE_CLIENT_ID="<client_id_z_pliku_konfiguracyjnego>"
      export IZZYLEASE_CLIENT_SECRET="<client_secret_z_pliku_konfiguracyjnego>"
      export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
+     # opcjonalnie ścieżka do mapowania ID salonów partnera na UUID w Izzylease
+     export IZZYLEASE_LOCATION_MAP_FILE="$PWD/config/location_map.json"
      ```
    Zmienna `IZZYLEASE_STATE_FILE` jest opcjonalna – jeśli jej nie ustawisz, aplikacja zapisze lokalne mapowanie VIN → car_id w katalogu domowym. Jeżeli nie masz jeszcze danych dostępowych (`client_id`/`client_secret`), poproś administratora platformy Izzylease.
+
+   Jeżeli partner dostarcza własne identyfikatory salonów, przygotuj plik `config/location_map.json` (możesz skopiować wzorzec `config/location_map.sample.json`) i wypełnij go mapowaniem `"partner_id": "uuid_salon"`.
 
 ## 6. Uruchomienie narzędzia
 Podstawowa komenda uruchamiająca proces synchronizacji wygląda tak:
