@@ -15,6 +15,7 @@ class VehicleStateEntry:
     vin: str
     car_id: str
     configuration_number: Optional[str] = None
+    active: bool = True
 
 
 class VehicleStateStore:
@@ -31,13 +32,31 @@ class VehicleStateStore:
         return entry.car_id if entry else None
 
     def upsert(self, vin: str, car_id: str, configuration_number: Optional[str]) -> None:
-        self._entries[vin] = VehicleStateEntry(vin=vin, car_id=car_id, configuration_number=configuration_number)
+        entry = self._entries.get(vin)
+        if entry:
+            entry.car_id = car_id
+            entry.configuration_number = configuration_number
+            entry.active = True
+        else:
+            self._entries[vin] = VehicleStateEntry(
+                vin=vin,
+                car_id=car_id,
+                configuration_number=configuration_number,
+                active=True,
+            )
 
-    def remove(self, vin: str) -> None:
-        self._entries.pop(vin, None)
+    def mark_deleted(self, vin: str) -> None:
+        entry = self._entries.get(vin)
+        if entry:
+            entry.active = False
+
+    def mark_active(self, vin: str) -> None:
+        entry = self._entries.get(vin)
+        if entry:
+            entry.active = True
 
     def known_vins(self) -> Iterable[str]:
-        return self._entries.keys()
+        return (vin for vin, entry in self._entries.items() if entry.active)
 
     def save(self) -> None:
         payload = {
@@ -45,6 +64,7 @@ class VehicleStateStore:
                 vin: {
                     "car_id": entry.car_id,
                     "configuration_number": entry.configuration_number,
+                    "active": entry.active,
                 }
                 for vin, entry in self._entries.items()
             }
@@ -71,12 +91,14 @@ class VehicleStateStore:
                     configuration_number = payload.get("configuration_number")
                     if configuration_number is not None and not isinstance(configuration_number, str):
                         configuration_number = None
+                    active_raw = payload.get("active")
+                    active = active_raw if isinstance(active_raw, bool) else True
                     self._entries[vin] = VehicleStateEntry(
                         vin=vin,
                         car_id=car_id,
                         configuration_number=configuration_number,
+                        active=active,
                     )
         except Exception as exc:  # pylint: disable=broad-except
             LOGGER.warning("Ignoring invalid state file %s: %s", self._path, exc)
             self._entries = {}
-

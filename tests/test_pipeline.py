@@ -91,7 +91,9 @@ def test_pipeline_closes_missing_when_requested(tmp_path: Path) -> None:
 
     assert report.closed == 1
     assert client.deleted == ["id-VIN-B"]
-    assert state_store.get_car_id("VIN-B") is None
+    # VIN-B remains in the state store but marked as inactive so it can be reactivated later.
+    assert state_store.get_car_id("VIN-B") == "id-VIN-B"
+    assert "VIN-B" not in list(state_store.known_vins())
     assert report.deleted_vehicles == [{"vin": "VIN-B", "car_id": "id-VIN-B"}]
 
 
@@ -111,3 +113,20 @@ def test_pipeline_collects_errors_when_api_fails(tmp_path: Path) -> None:
     assert report.updated == 0
     assert report.errors
     assert "update failed" in report.errors[0]
+
+
+def test_pipeline_reactivates_deleted_vehicle(tmp_path: Path) -> None:
+    client = FakeClient()
+    state_store = VehicleStateStore(tmp_path / "state.json")
+    state_store.upsert("VIN-A", "id-VIN-A", "A")
+    state_store.mark_deleted("VIN-A")
+
+    synchronizer = VehicleSynchronizer(client, state_store)
+    vehicles = [make_vehicle("VIN-A", "150000", configuration_number="A")]
+
+    report = synchronizer.run(vehicles, close_missing=False)
+
+    assert report.created == 0
+    assert report.updated == 1
+    assert report.updated_vehicles == [{"vin": "VIN-A", "car_id": "id-VIN-A"}]
+    assert "VIN-A" in list(state_store.known_vins())

@@ -89,6 +89,7 @@ class VehicleSynchronizer:
                 self._client.update_vehicle(state_car_id, vehicle)
                 report.updated += 1
                 report.updated_vehicles.append({"vin": vin_label, "car_id": state_car_id})
+                self._state_store.mark_active(vin_label)
             except Exception as exc:  # pylint: disable=broad-except
                 LOGGER.exception("Failed to update vehicle %s", car_label)
                 report.errors.append(f"{car_label}: update failed: {exc}")
@@ -103,6 +104,7 @@ class VehicleSynchronizer:
             self._state_store.upsert(vin_label, created_id, vehicle.configuration_number)
             report.created += 1
             report.created_vehicles.append({"vin": vin_label, "car_id": created_id})
+            self._state_store.mark_active(vin_label)
 
     def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
         known_vins = set(self._state_store.known_vins())
@@ -112,7 +114,7 @@ class VehicleSynchronizer:
                 continue
             try:
                 self._client.delete_vehicle(car_id)
-                self._state_store.remove(vin)
+                self._state_store.mark_deleted(vin)
                 report.closed += 1
                 report.deleted_vehicles.append({"vin": vin, "car_id": car_id})
             except Exception as exc:  # pylint: disable=broad-except
