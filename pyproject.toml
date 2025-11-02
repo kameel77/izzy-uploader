@@ -27,5 +27,11 @@ web = [
 izzy-uploader = "izzy_uploader.cli:cli"
 izzy-uploader-web = "izzy_uploader_web:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.setuptools.package-data]
 "izzy_uploader_web" = ["templates/*.html"]
