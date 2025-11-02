@@ -53,24 +53,31 @@ Ostatnia komenda przełącza na nowego użytkownika.
    ```bash
    source .venv/bin/activate
    ```
-3. Zaktualizuj `pip` i zainstaluj projekt z zależnościami:
+3. Zaktualizuj `pip` i zainstaluj projekt z zależnościami (CLI + UI):
    ```bash
    pip install --upgrade pip
-   pip install -e .[dev]
+   pip install -e '.[dev,web]'
    ```
 
 ## 7. Konfiguracja dostępu do API Izzylease
 1. Ustal wartości zmiennych środowiskowych (dane powinieneś otrzymać od Izzylease):
    ```bash
    export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"
-   export IZZYLEASE_API_KEY="TWOJ_TAJNY_KLUCZ"
+   export IZZYLEASE_CLIENT_ID="TWOJ_CLIENT_ID"
+   export IZZYLEASE_CLIENT_SECRET="TWOJ_CLIENT_SECRET"
+   # opcjonalnie ścieżka do pliku stanu i mapowania lokalizacji
+   export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
+   export IZZYLEASE_LOCATION_MAP_FILE="$HOME/.izzy_uploader/location_map.json"
    ```
 2. Jeśli chcesz, aby były ustawione po każdym logowaniu, dopisz te linie do pliku `~/.bashrc`:
    ```bash
    echo 'export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"' >> ~/.bashrc
-   echo 'export IZZYLEASE_API_KEY="TWOJ_TAJNY_KLUCZ"' >> ~/.bashrc
+   echo 'export IZZYLEASE_CLIENT_ID="TWOJ_CLIENT_ID"' >> ~/.bashrc
+   echo 'export IZZYLEASE_CLIENT_SECRET="TWOJ_CLIENT_SECRET"' >> ~/.bashrc
+   echo 'export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"' >> ~/.bashrc
+   echo 'export IZZYLEASE_LOCATION_MAP_FILE="$HOME/.izzy_uploader/location_map.json"' >> ~/.bashrc
+   source ~/.bashrc
    ```
-   Po zmianie pliku `~/.bashrc` wykonaj `source ~/.bashrc`, aby wczytać nowe ustawienia.
 
 ## 8. Przygotowanie pliku CSV
 1. Prześlij plik CSV na serwer (np. przy użyciu `scp`):
@@ -80,7 +87,7 @@ Ostatnia komenda przełącza na nowego użytkownika.
    Zmienna `izzy` to nazwa użytkownika, a `data.csv` to nazwa pliku na serwerze.
 2. Upewnij się, że plik ma nagłówki zgodne z `_Planning/izzylease_lista_pol_import_pojazdow.csv`.
 
-## 9. Uruchomienie synchronizacji na serwerze
+## 9. Uruchomienie synchronizacji (CLI)
 Będąc w katalogu projektu i z aktywnym środowiskiem (`source .venv/bin/activate`):
 ```bash
 izzy-uploader sync data.csv --close-missing --update-prices --json
@@ -88,7 +95,24 @@ izzy-uploader sync data.csv --close-missing --update-prices --json
 - Jeśli plik CSV leży w innym miejscu, podaj pełną ścieżkę (np. `/home/izzy/izzy-uploader/import/auta.csv`).
 - Raport z działania pojawi się od razu w terminalu.
 
-## 10. Automatyzacja (opcjonalnie)
+## 10. Uruchomienie interfejsu webowego (opcjonalne)
+1. Upewnij się, że zależności webowe są zainstalowane (patrz pkt 6).
+2. Włącz aplikację Flask:
+   ```bash
+   export FLASK_APP=izzy_uploader_web.app
+   flask run --host 0.0.0.0 --port 8000
+   ```
+   - `--host 0.0.0.0` umożliwia dostęp z zewnątrz (np. przez przeglądarkę),
+   - `--port 8000` to przykładowa wartość – możesz ustawić inną.
+3. W przeglądarce otwórz `http://ADRES_IP_Twojego_Serwera:8000`.
+4. Formularz pozwala załadować CSV, uruchomić synchronizację, obejrzeć i pobrać raport.
+5. Zakładka „Mapowanie lokalizacji” umożliwia dopisywanie par `partner_id → UUID` – zmiany trafiają do pliku `config/location_map.json` (lub wskazanego przez `IZZYLEASE_LOCATION_MAP_FILE`).
+6. Aby wystawić UI produkcyjnie, rozważ użycie Gunicorna i nginx, np.:
+   ```bash
+   gunicorn izzy_uploader_web:create_app --bind 0.0.0.0:8000
+   ```
+
+## 11. Automatyzacja synchronizacji (opcjonalnie)
 Jeśli chcesz uruchamiać synchronizację cyklicznie (np. codziennie o 2:00):
 1. Otwórz edytor crona:
    ```bash
@@ -100,8 +124,8 @@ Jeśli chcesz uruchamiać synchronizację cyklicznie (np. codziennie o 2:00):
    ```
    Dzięki temu wynik działania trafi do pliku `logs.txt`.
 
-## 11. Zakończenie pracy
+## 12. Zakończenie pracy
 - Aby wylogować się z serwera, wpisz `exit`.
 - Przed wylogowaniem możesz dezaktywować środowisko Pythona poleceniem `deactivate`.
 
-Po wykonaniu powyższych kroków Izzy Uploader działa na Twoim serwerze VPS Hetzner i jest gotowy do obsługi plików CSV z danymi pojazdów.
+Po wykonaniu powyższych kroków Izzy Uploader działa na Twoim serwerze VPS Hetzner – zarówno w trybie CLI, jak i poprzez prosty interfejs webowy.
