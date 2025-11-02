@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% set title = 'Mapowanie lokalizacji' %}
+
+{% block content %}
+  <h2>Dodaj mapowanie lokalizacji</h2>
+  <form method="post" action="{{ url_for('web.locations') }}">
+    <label for="partner_id">Identyfikator partnera</label>
+    <input id="partner_id" name="partner_id" type="text" required />
+
+    <label for="location_uuid">UUID lokalizacji w Izzylease</label>
+    <input id="location_uuid" name="location_uuid" type="text" required placeholder="00000000-0000-0000-0000-000000000000" />
+
+    <button type="submit">Zapisz mapowanie</button>
+  </form>
+
+  <h3>Aktualne mapowanie ({{ map_path }})</h3>
+  {% if mapping %}
+    <table>
+      <thead>
+        <tr>
+          <th>Partner ID</th>
+          <th>UUID lokalizacji</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for partner_id, uuid in mapping %}
+          <tr>
+            <td>{{ partner_id }}</td>
+            <td>{{ uuid }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>Brak zdefiniowanych mapowań.</p>
+  {% endif %}
+{% endblock %}

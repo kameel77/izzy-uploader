@@ -86,6 +86,7 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
    flask run
    ```
 3. Wejdź na `http://127.0.0.1:5000`, wybierz plik CSV i pobierz raport JSON.
+4. W zakładce „Mapowanie lokalizacji” możesz dopisywać pary `partner_id → UUID`. Zmiany trafiają do pliku z mapą lokalizacji (domyślnie `config/location_map.json`).
 
 ## 6. Uruchomienie narzędzia
 Podstawowa komenda uruchamiająca proces synchronizacji wygląda tak:

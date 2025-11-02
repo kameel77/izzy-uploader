@@ -22,6 +22,11 @@ from flask import (
 from izzy_uploader.client import IzzyleaseClient
 from izzy_uploader.config import ServiceConfig
 from izzy_uploader.csv_loader import load_vehicles_from_csv
+from izzy_uploader.normalizers import (
+    get_location_map_path,
+    load_location_map,
+    save_location_map,
+)
 from izzy_uploader.pipelines.import_pipeline import VehicleSynchronizer
 from izzy_uploader.state import VehicleStateStore
 
@@ -100,6 +105,32 @@ def create_app() -> Flask:
             flash("Raport wygasł lub nie istnieje.", "error")
             return redirect(url_for("web.index"))
         return send_file(entry["path"], as_attachment=True, download_name=entry["filename"])
+
+    @bp.route("/locations", methods=["GET", "POST"])
+    def locations() -> str:
+        mapping = load_location_map()
+
+        if request.method == "POST":
+            partner_id = (request.form.get("partner_id") or "").strip()
+            location_uuid = (request.form.get("location_uuid") or "").strip()
+
+            if not partner_id or not location_uuid:
+                flash("Wprowadź numer partnera i UUID lokalizacji.", "error")
+            else:
+                mapping[partner_id] = location_uuid
+                try:
+                    save_location_map(mapping)
+                    flash("Mapowanie zapisane.", "success")
+                    return redirect(url_for("web.locations"))
+                except Exception as exc:  # pragma: no cover - filesystem failure
+                    flash(f"Nie udało się zapisać mapowania: {exc}", "error")
+
+        mapping_items = sorted(load_location_map().items())
+        return render_template(
+            "locations.html",
+            mapping=mapping_items,
+            map_path=get_location_map_path(),
+        )
 
     app.register_blueprint(bp)
     return app

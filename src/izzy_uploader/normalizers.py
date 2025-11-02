@@ -129,24 +129,23 @@ def _map_enum(
 def _map_location(value: Optional[str]) -> str:
     if not value:
         return ""
-    mapping = _location_map()
+    mapping = _load_location_map()
     partner_id = value.strip()
     return mapping.get(partner_id, "")
 
 
-def _location_map() -> Dict[str, str]:
-    if not hasattr(_location_map, "_cache"):
-        path = os.getenv(LOCATION_MAP_ENV)
-        mapping_path = Path(path).expanduser() if path else DEFAULT_LOCATION_MAP_PATH
+def _load_location_map() -> Dict[str, str]:
+    if not hasattr(_load_location_map, "_cache"):
+        mapping_path = get_location_map_path()
         if mapping_path.exists():
             try:
                 with mapping_path.open("r", encoding="utf-8") as handle:
-                    _location_map._cache = json.load(handle)
+                    _load_location_map._cache = json.load(handle)
             except (OSError, json.JSONDecodeError):
-                _location_map._cache = {}
+                _load_location_map._cache = {}
         else:
-            _location_map._cache = {}
-    return _location_map._cache  # type: ignore[attr-defined]
+            _load_location_map._cache = {}
+    return dict(getattr(_load_location_map, "_cache"))
 
 
 def _normalise_key(value: str) -> str:
@@ -171,6 +170,35 @@ def _normalise_description(value: str) -> str:
         seen.add(key)
         deduplicated.append(item)
     return "\n".join(deduplicated)
+
+
+def get_location_map_path() -> Path:
+    """Return the path to the partner → location mapping file."""
+
+    configured = os.getenv(LOCATION_MAP_ENV)
+    return Path(configured).expanduser() if configured else DEFAULT_LOCATION_MAP_PATH
+
+
+def load_location_map() -> Dict[str, str]:
+    """Return a copy of the location mapping."""
+
+    return _load_location_map()
+
+
+def save_location_map(mapping: Dict[str, str]) -> None:
+    """Persist *mapping* to disk under the configured location map path."""
+
+    path = get_location_map_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+    refresh_location_map()
+
+
+def refresh_location_map() -> None:
+    """Clear cached mapping so future lookups reload the file."""
+
+    if hasattr(_load_location_map, "_cache"):
+        delattr(_load_location_map, "_cache")
 
 
 CATEGORY_MAP = {

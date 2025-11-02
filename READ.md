@@ -60,6 +60,7 @@ klienta HTTP oraz orkiestrator procesów z wierszem poleceń.
    flask run  # domyślnie http://127.0.0.1:5000
    ```
 3. W UI wybierz plik CSV, wskaż opcje synchronizacji i pobierz wygenerowany raport JSON lub podejrzyj go w przeglądarce.
+4. Zakładka „Mapowanie lokalizacji” pozwala dodawać/aktualizować pary `partner_id → UUID` – wpisy trafiają do `config/location_map.json` (lub pliku wskazanego przez `IZZYLEASE_LOCATION_MAP_FILE`).
 
 Na produkcji możesz uruchomić `gunicorn izzy_uploader_web:create_app()` za reverse proxy (np. nginx).
 

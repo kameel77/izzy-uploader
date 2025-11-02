@@ -19,6 +19,10 @@
       .summary { margin: 1rem 0; }
       .summary ul { list-style: none; padding: 0; }
       .summary li { margin: 0.25rem 0; }
+      table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+      th, td { padding: 0.5rem; border-bottom: 1px solid #ddd; text-align: left; }
+      nav { margin-top: 0.5rem; }
+      nav a { color: #1f76d1; text-decoration: none; margin-right: 0.5rem; }
       footer { margin-top: 3rem; font-size: 0.85rem; color: #777; }
     </style>
   </head>
@@ -26,6 +30,10 @@
     <header>
       <h1>{{ title or 'Izzy Uploader' }}</h1>
       <p>Załaduj plik CSV, aby przetworzyć dane i wygenerować raport JSON.</p>
+      <nav>
+        <a href="{{ url_for('web.index') }}">Import CSV</a> |
+        <a href="{{ url_for('web.locations') }}">Mapowanie lokalizacji</a>
+      </nav>
     </header>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
