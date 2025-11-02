@@ -20,6 +20,7 @@ dev = [
 ]
 web = [
   "Flask>=3.0",
+  "gunicorn>=21.2",
 ]
 
 [project.scripts]
