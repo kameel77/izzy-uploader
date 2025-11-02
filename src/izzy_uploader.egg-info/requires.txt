@@ -1,0 +1,9 @@
+click>=8.1
+certifi>=2023.7
+
+[dev]
+pytest>=7.4
+
+[web]
+Flask>=3.0
+gunicorn>=21.2

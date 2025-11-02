@@ -1,0 +1,3 @@
+[console_scripts]
+izzy-uploader = izzy_uploader.cli:cli
+izzy-uploader-web = izzy_uploader_web:main

@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  izzy-uploader:
+    build: .
+    image: izzy-uploader:latest
+    restart: unless-stopped
+    env_file:
+      - ./docker/.env
+    environment:
+      - IZZY_UPLOADER_STATE_FILE=/data/state.json
+      - IZZY_UPLOADER_LOCATION_MAP_FILE=/data/location_map.json
+    volumes:
+      - uploader-data:/data
+    ports:
+      - "8000:8000"
+    labels:
+      - "traefik.enable=true"
+      # - "traefik.http.routers.izzy-uploader.rule=Host(`uploader.localhost`)"
+      - "traefik.http.services.izzy-uploader.loadbalancer.server.port=8000"
+
+volumes:
+  uploader-data:

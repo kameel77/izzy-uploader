@@ -1,131 +1,209 @@
-# Jak uruchomić Izzy Uploader na serwerze VPS Hetzner
+# Uruchomienie Izzy Uploader na VPS Hetzner (środowisko wieloaplikacyjne)
 
-Ta instrukcja zakłada, że masz aktywny serwer VPS w Hetznerze (np. z systemem Ubuntu 22.04) oraz dostęp do konta root poprzez SSH. Wszystkie kroki opisano możliwie prostym językiem.
+Poniższa procedura pomaga przygotować nowy serwer VPS (np. Hetzner CX/CP) tak, aby można było równolegle hostować wiele aplikacji w różnych technologiach. Instrukcja zakłada Ubuntu 22.04 LTS oraz dostęp do konta `root` przez SSH.
 
-## 1. Połączenie z serwerem
-1. Otwórz terminal na swoim komputerze.
-2. Połącz się z serwerem poleceniem (adres IP znajdziesz w panelu Hetznera):
+---
+
+## 1. Dostęp i podstawowe bezpieczeństwo
+
+1. **Połączenie SSH**  
    ```bash
-   ssh root@ADRES_IP_Twojego_Serwera
+   ssh root@ADRES_IP_SERWERA
    ```
-   - Jeśli to pierwsze połączenie, potwierdź pytanie o zaufanie (`yes`).
-   - Wpisz hasło root podane przez Hetznera (możesz je wkleić prawym przyciskiem myszy w terminalu).
-
-## 2. Aktualizacja systemu
-Po zalogowaniu uruchom standardowe aktualizacje:
-```bash
-apt update && apt upgrade -y
-```
-Dzięki temu wszystkie pakiety będą w najnowszych wersjach.
-
-## 3. Instalacja narzędzi systemowych
-Zainstaluj Git, Pythona i narzędzia do kompilacji (mogą być potrzebne przy instalacji bibliotek):
-```bash
-apt install -y git python3 python3-venv python3-pip build-essential
-```
-
-## 4. Utworzenie dedykowanego użytkownika (zalecane)
-Aby nie pracować cały czas jako root, warto stworzyć osobne konto. Jeśli chcesz pominąć ten krok, przejdź do punktu 5.
-```bash
-adduser izzy
-usermod -aG sudo izzy
-su - izzy
-```
-Ostatnia komenda przełącza na nowego użytkownika.
-
-## 5. Pobranie projektu na serwer
-1. Wybierz katalog, w którym ma działać aplikacja, np. domowy użytkownika:
+2. **Aktualizacje i podstawowe pakiety**  
    ```bash
-   cd ~
+   apt update && apt upgrade -y
+   apt install -y build-essential curl git htop unzip ufw
    ```
-2. Sklonuj repozytorium (podstaw poprawny adres HTTPS/SSH):
+3. **Firewall UFW**  
    ```bash
-   git clone https://github.com/<twoje-repo>/izzy-uploader.git
-   cd izzy-uploader
+   ufw allow OpenSSH
+   ufw allow 80/tcp
+   ufw allow 443/tcp
+   ufw enable
+   ```
+4. **Utworzenie konta operatorskiego** (bez pracy na `root`):  
+   ```bash
+   adduser deploy
+   usermod -aG sudo deploy
+   ```
+   Następnie dodaj swój publiczny klucz do `~deploy/.ssh/authorized_keys` i zabroń logowania hasłem (edycja `/etc/ssh/sshd_config`, parametry `PasswordAuthentication no`, potem `systemctl reload sshd`).
+
+---
+
+## 2. Wspólna infrastruktura dla wielu aplikacji
+
+W środowisku, gdzie planujemy uruchamiać wiele projektów, warto przygotować wspólne komponenty:
+
+1. **Docker + Docker Compose**  
+   ```bash
+   apt install -y ca-certificates gnupg
+   install -m 0755 -d /etc/apt/keyrings
+   curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+   echo \
+     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+     $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+   apt update
+   apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+   usermod -aG docker deploy
+   ```
+   (wyloguj / zaloguj się ponownie, aby grupa zaczęła działać).
+
+2. **Reverse proxy + certyfikaty**
+   - Zainstaluj Traefik lub Nginx jako reverse proxy (poniższy przykład używa Traefika w Dockerze).
+   - Stwórz katalog `/srv/infra/traefik` i dodaj `docker-compose.yml`, który wystawi porty 80/443 oraz automatyczne certyfikaty Let's Encrypt. Używaj etykiet Traefika w każdej aplikacji, aby routować ruch.
+
+3. **Struktura katalogów**  
+   ```
+   /srv
+     ├─ infra/         # Dodatkowe usługi (traefik, monitoring, logowanie)
+     ├─ apps/
+     │   └─ izzy-uploader/
+     └─ secrets/       # Pliki .env, certyfikaty
    ```
 
-## 6. Przygotowanie środowiska Pythona
-1. Utwórz wirtualne środowisko:
+4. **Monitoring / logi (opcjonalnie)**
+   - Zainstaluj `fail2ban`, `prometheus-node-exporter`, `netdata` lub inne narzędzia zależnie od potrzeb.
+
+---
+
+## 3. Przygotowanie aplikacji Izzy Uploader
+
+> Poniższe kroki wykonuj jako użytkownik `deploy` (lub inny utworzony w kroku 1.4), który ma dostęp do repozytorium.
+
+### 3.1 Klonowanie repozytorium
+```bash
+ssh deploy@ADRES_IP_SERWERA
+mkdir -p /srv/apps
+cd /srv/apps
+git clone https://github.com/<twoje-repo>/izzy-uploader.git
+cd izzy-uploader
+```
+
+### 3.2 Konfiguracja środowiska
+Skopiuj plik `.env.example` i uzupełnij wartości:
+```bash
+cp .env.example .env
+```
+Kluczowe zmienne:
+- `IZZYLEASE_API_BASE_URL`, `IZZYLEASE_CLIENT_ID`, `IZZYLEASE_CLIENT_SECRET`
+- Ścieżki do plików stanu (np. `/srv/data/izzy-uploader/state.json`)
+- Opcjonalnie konfiguracja SMTP dla powiadomień (jeśli przewidziano)
+
+Najbezpieczniej przechowywać `.env` w `/srv/secrets/izzy-uploader.env` i odwoływać się do niego z docker-compose / systemd.
+
+### 3.3 Wybór sposobu uruchomienia
+
+#### Opcja A: Docker Compose (rekomendowana)
+
+Repo zawiera gotowy `Dockerfile`, `.dockerignore` oraz przykładowy `docker-compose.yml`.
+
+1. Skonfiguruj zmienne środowiskowe:
+   ```bash
+   cp docker/.env.example docker/.env
+   nano docker/.env  # uzupełnij dane API i sekret
+   ```
+2. Jeśli korzystasz z Traefika, upewnij się, że kontener jest w tej samej sieci:
+   ```bash
+   docker network create traefik  # jeśli jeszcze nie istnieje
+   # w docker-compose.yml dodaj sekcję networks:
+   # networks:
+   #   - traefik
+   # networks:
+   #   traefik:
+   #     external: true
+   ```
+3. Budowa i uruchomienie:
+   ```bash
+   docker compose build
+   docker compose up -d
+   ```
+4. Domyślnie aplikacja nasłuchuje na porcie `8000`. Etykiety Traefika w pliku Compose kierują ruch na subdomenę `uploader.twojadomena.pl`, ale możesz je dostosować lub użyć własnego reverse proxy/nginx.
+
+#### Opcja B: Systemd + Python venv
+
+1. Zainstaluj zależności w wirtualnym środowisku:
    ```bash
    python3 -m venv .venv
-   ```
-2. Aktywuj je:
-   ```bash
    source .venv/bin/activate
-   ```
-3. Zaktualizuj `pip` i zainstaluj projekt z zależnościami (CLI + UI):
-   ```bash
    pip install --upgrade pip
-   pip install -e '.[dev,web]'
+   pip install -e '.[web]'
    ```
+2. Stwórz plik `/etc/systemd/system/izzy-uploader.service`:
+   ```ini
+   [Unit]
+   Description=Izzy Uploader
+   After=network.target
 
-## 7. Konfiguracja dostępu do API Izzylease
-1. Ustal wartości zmiennych środowiskowych (dane powinieneś otrzymać od Izzylease):
-   ```bash
-   export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"
-   export IZZYLEASE_CLIENT_ID="TWOJ_CLIENT_ID"
-   export IZZYLEASE_CLIENT_SECRET="TWOJ_CLIENT_SECRET"
-   # opcjonalnie ścieżka do pliku stanu i mapowania lokalizacji
-   export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
-   export IZZYLEASE_LOCATION_MAP_FILE="$HOME/.izzy_uploader/location_map.json"
-   ```
-2. Jeśli chcesz, aby były ustawione po każdym logowaniu, dopisz te linie do pliku `~/.bashrc`:
-   ```bash
-   echo 'export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"' >> ~/.bashrc
-   echo 'export IZZYLEASE_CLIENT_ID="TWOJ_CLIENT_ID"' >> ~/.bashrc
-   echo 'export IZZYLEASE_CLIENT_SECRET="TWOJ_CLIENT_SECRET"' >> ~/.bashrc
-   echo 'export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"' >> ~/.bashrc
-   echo 'export IZZYLEASE_LOCATION_MAP_FILE="$HOME/.izzy_uploader/location_map.json"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
+   [Service]
+   WorkingDirectory=/srv/apps/izzy-uploader
+   EnvironmentFile=/srv/secrets/izzy-uploader.env
+   ExecStart=/srv/apps/izzy-uploader/.venv/bin/gunicorn izzy_uploader_web:create_app --bind 127.0.0.1:8000
+   Restart=always
+   User=deploy
 
-## 8. Przygotowanie pliku CSV
-1. Prześlij plik CSV na serwer (np. przy użyciu `scp`):
-   ```bash
-   scp /sciezka/do/twojego_pliku.csv izzy@ADRES_IP_Twojego_Serwera:/home/izzy/izzy-uploader/data.csv
+   [Install]
+   WantedBy=multi-user.target
    ```
-   Zmienna `izzy` to nazwa użytkownika, a `data.csv` to nazwa pliku na serwerze.
-2. Upewnij się, że plik ma nagłówki zgodne z `_Planning/izzylease_lista_pol_import_pojazdow.csv`.
+3. Uruchom i dodaj reverse proxy w Nginx/Traefik, aby kierować ruch z portu 443.
 
-## 9. Uruchomienie synchronizacji (CLI)
-Będąc w katalogu projektu i z aktywnym środowiskiem (`source .venv/bin/activate`):
-```bash
-izzy-uploader sync data.csv --close-missing --update-prices --json
-```
-- Jeśli plik CSV leży w innym miejscu, podaj pełną ścieżkę (np. `/home/izzy/izzy-uploader/import/auta.csv`).
-- Raport z działania pojawi się od razu w terminalu.
+---
 
-## 10. Uruchomienie interfejsu webowego (opcjonalne)
-1. Upewnij się, że zależności webowe są zainstalowane (patrz pkt 6).
-2. Włącz aplikację Flask:
+## 4. Dostęp CLI i automatyzacja
+
+1. **Manualne uruchomienie synchronizacji** (w kontenerze lub venv):
    ```bash
-   export FLASK_APP=izzy_uploader_web.app
-   flask run --host 0.0.0.0 --port 8000
+   izzy-uploader sync /srv/data/izzy-uploader/import.csv --close-missing --update-prices
    ```
-   - `--host 0.0.0.0` umożliwia dostęp z zewnątrz (np. przez przeglądarkę),
-   - `--port 8000` to przykładowa wartość – możesz ustawić inną.
-3. W przeglądarce otwórz `http://ADRES_IP_Twojego_Serwera:8000`.
-4. Formularz pozwala załadować CSV, uruchomić synchronizację, obejrzeć i pobrać raport.
-5. Zakładka „Mapowanie lokalizacji” umożliwia dopisywanie par `partner_id → UUID` – zmiany trafiają do pliku `config/location_map.json` (lub wskazanego przez `IZZYLEASE_LOCATION_MAP_FILE`).
-6. Aby wystawić UI produkcyjnie, rozważ użycie Gunicorna i nginx, np.:
-   ```bash
-   gunicorn izzy_uploader_web:create_app --bind 0.0.0.0:8000
-   ```
-
-## 11. Automatyzacja synchronizacji (opcjonalnie)
-Jeśli chcesz uruchamiać synchronizację cyklicznie (np. codziennie o 2:00):
-1. Otwórz edytor crona:
+2. **Cron (harmonogram)**  
+   Użytkownik `deploy` może dodać wpis:
    ```bash
    crontab -e
    ```
-2. Dodaj linijkę (przystosuj ścieżki do swojej lokalizacji):
-   ```cron
-   0 2 * * * source /home/izzy/izzy-uploader/.venv/bin/activate && cd /home/izzy/izzy-uploader && izzy-uploader sync /home/izzy/izzy-uploader/data.csv --close-missing --update-prices --json >> /home/izzy/izzy-uploader/logs.txt 2>&1
    ```
-   Dzięki temu wynik działania trafi do pliku `logs.txt`.
+   0 2 * * * /usr/bin/docker compose -f /srv/apps/izzy-uploader/docker-compose.yml run --rm izzy-uploader \
+     izzy-uploader sync /data/import.csv --close-missing --update-prices >> /srv/log/izzy-uploader/sync.log 2>&1
+   ```
+   (Dostosuj komendę do wybranego sposobu uruchomienia.)
 
-## 12. Zakończenie pracy
-- Aby wylogować się z serwera, wpisz `exit`.
-- Przed wylogowaniem możesz dezaktywować środowisko Pythona poleceniem `deactivate`.
+3. **Backup plików**  
+   - `/srv/data/izzy-uploader` (CSV, raporty, stan).
+   - `/srv/secrets/izzy-uploader.env`.
+   Rozważ użycie Hetzner Storage Box + `restic` / `rclone`.
 
-Po wykonaniu powyższych kroków Izzy Uploader działa na Twoim serwerze VPS Hetzner – zarówno w trybie CLI, jak i poprzez prosty interfejs webowy.
+---
+
+## 5. Monitoring i logi
+
+1. **Logi aplikacji**:  
+   - Docker: `docker compose logs -f izzy-uploader`
+   - Systemd: `journalctl -u izzy-uploader -f`
+2. **Alerty**:  
+   - Zainstaluj `promtail` + Grafana Loki lub prostsze narzędzia typu `logrotate`.
+3. **Testy działania**:  
+   - Endpoint health-check (np. `/health` jeśli zaimplementowany).
+   - Monitor cronów (np. `healthchecks.io`).
+
+---
+
+## 6. Dodawanie kolejnych aplikacji
+
+1. Każda nowa usługa trafia do `/srv/apps/<nazwa>` i ma osobny `.env` w `/srv/secrets`.
+2. Reużywaj Traefika / reverse proxy – dzięki temu certyfikaty i routingi są konfigurowane w jednym miejscu.
+3. Standaryzuj nazwy usług, logów, portów i sieci dockerowych.
+4. Dokumentuj w `/srv/docs` wszystkie kroki dla przyszłych członków zespołu.
+
+---
+
+## 7. Lista kontrolna po wdrożeniu
+
+- [ ] Użytkownik `deploy` ma dostęp SSH i sudo.
+- [ ] Firewall (UFW) aktywny, porty 80/443/22 dozwolone.
+- [ ] Traefik/Gunicorn/Nginx działają i obsługują certyfikaty.
+- [ ] Izzy Uploader startuje (systemd lub docker) i reaguje na `izzy-uploader sync`.
+- [ ] Zmiennych środowiskowych nie ma w repozytorium, trzymane są w `/srv/secrets`.
+- [ ] Zdefiniowany backup danych (`/srv/data`, `/srv/secrets`).
+- [ ] Dokumentacja wewnętrzna uzupełniona (np. `README.md` w `/srv/apps/izzy-uploader`).
+- [ ] Kontrola logów: `journalctl`, `docker logs`, monitoring.
+
+Po wykonaniu powyższych kroków serwer VPS Hetzner jest gotowy do hostowania wielu aplikacji, a Izzy Uploader działa w produkcyjnym środowisku z centralnym zarządzaniem konfiguracją i ruchem.
