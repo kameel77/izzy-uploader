@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from .config import ServiceConfig
-from .csv_loader import assert_no_errors, load_vehicles_from_csv
+from .csv_loader import load_vehicles_from_csv
 from .client import IzzyleaseClient
 from .pipelines.import_pipeline import PipelineReport, VehicleSynchronizer
 from .state import VehicleStateStore
@@ -34,11 +34,17 @@ def sync_command(csv_path: Path, close_missing: bool, update_prices: bool, as_js
     client = IzzyleaseClient(config)
     state_store = VehicleStateStore(config.state_file)
 
-    vehicles, errors = load_vehicles_from_csv(csv_path)
-    assert_no_errors(errors)
+    vehicles, csv_errors = load_vehicles_from_csv(csv_path)
 
     synchronizer = VehicleSynchronizer(client, state_store)
     report = synchronizer.run(vehicles, close_missing=close_missing, update_prices=update_prices)
+
+    for csv_error in csv_errors:
+        report.record_error(
+            f"CSV line {csv_error.line_number}: {csv_error.message}",
+            vin=csv_error.vin,
+            car_id=None,
+        )
     _emit_report(report, as_json=as_json)
 
 

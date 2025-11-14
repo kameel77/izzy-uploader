@@ -59,12 +59,8 @@ def create_app() -> Flask:
             file.save(tmp_csv.name)
             tmp_csv_path = Path(tmp_csv.name)
 
-        vehicles, errors = load_vehicles_from_csv(tmp_csv_path)
+        vehicles, csv_errors = load_vehicles_from_csv(tmp_csv_path)
         tmp_csv_path.unlink(missing_ok=True)
-
-        if errors:
-            flash("Przetwarzanie CSV zakończone błędem.", "error")
-            return render_template("result.html", errors=errors)
 
         try:
             config = ServiceConfig.from_env()
@@ -83,6 +79,12 @@ def create_app() -> Flask:
             update_prices=update_prices,
         )
 
+        for csv_error in csv_errors:
+            report.record_error(
+                f"CSV line {csv_error.line_number}: {csv_error.message}",
+                vin=csv_error.vin,
+            )
+
         report_data = report.as_dict(include_details=True)
         report_json = json.dumps(report_data, ensure_ascii=False, indent=2)
 
@@ -96,6 +98,7 @@ def create_app() -> Flask:
             report=report_json,
             summary=report.as_dict(include_details=False),
             report_id=report_id,
+            csv_errors=[err.format_for_display() for err in csv_errors],
         )
 
     @bp.route("/download/<report_id>", methods=["GET"])

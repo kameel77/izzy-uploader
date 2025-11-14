@@ -2,7 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 from textwrap import dedent
 
-from izzy_uploader.csv_loader import load_vehicles_from_csv
+from izzy_uploader.csv_loader import CsvRowError, load_vehicles_from_csv
 
 
 def test_loads_valid_vehicle(tmp_path: Path) -> None:
@@ -42,7 +42,9 @@ def test_invalid_rows_return_errors(tmp_path: Path) -> None:
 
     assert not vehicles
     assert errors
-    assert "Missing required CSV fields" in errors[0]
+    assert isinstance(errors[0], CsvRowError)
+    assert errors[0].vin is None
+    assert "Missing required CSV fields" in errors[0].message
 
 
 def test_partner_specific_values_are_normalised(tmp_path: Path) -> None:

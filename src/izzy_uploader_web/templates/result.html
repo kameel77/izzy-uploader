@@ -1,15 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  {% if errors %}
-    <h2>Błędy walidacji CSV</h2>
-    <ul>
-      {% for error in errors %}
-        <li>{{ error }}</li>
-      {% endfor %}
-    </ul>
-    <p><a href="{{ url_for('web.index') }}">Powrót</a></p>
-  {% else %}
+{% if summary %}
     <h2>Raport synchronizacji</h2>
     <div class="summary">
       <ul>
@@ -19,11 +11,27 @@
         <li>Błędy: {{ summary.errors }}</li>
       </ul>
     </div>
+    {% if csv_errors %}
+      <h3>Błędy wierszy CSV (pominięte rekordy)</h3>
+      <ul>
+        {% for error in csv_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     <p>
       <a href="{{ url_for('web.download', report_id=report_id) }}">Pobierz raport JSON</a>
     </p>
     <h3>Podgląd JSON</h3>
     <pre>{{ report }}</pre>
     <p><a href="{{ url_for('web.index') }}">Przetwórz kolejny plik</a></p>
-  {% endif %}
+{% elif errors %}
+    <h2>Błędy</h2>
+    <ul>
+      {% for error in errors %}
+        <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+    <p><a href="{{ url_for('web.index') }}">Powrót</a></p>
+{% endif %}
 {% endblock %}
