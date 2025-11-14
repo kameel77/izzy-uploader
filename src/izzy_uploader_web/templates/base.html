@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ title or 'Izzy Uploader' }}</title>
+    <title>{{ title or 'Izzy CSV Uploader' }}</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}" />
     <style>
       body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 800px; padding: 0 1rem; }
       header { margin-bottom: 2rem; }
@@ -28,7 +29,7 @@
   </head>
   <body>
     <header>
-      <h1>{{ title or 'Izzy Uploader' }}</h1>
+      <h1>{{ title or 'Izzy CSV Uploader' }}</h1>
       <p>Załaduj plik CSV, aby przetworzyć dane i wygenerować raport JSON.</p>
       <nav>
         <a href="{{ url_for('web.index') }}">Import CSV</a> |
