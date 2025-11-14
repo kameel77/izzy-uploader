@@ -25,9 +25,13 @@ def clean_row(row: Dict[str, str]) -> Dict[str, str]:
     cleaned["transmissionType"] = _map_enum(cleaned.get("transmissionType"), TRANSMISSION_MAP)
     cleaned["driveWheels"] = _map_enum(cleaned.get("driveWheels"), DRIVE_WHEELS_MAP)
     cleaned["type"] = _map_enum(cleaned.get("type"), VEHICLE_TYPE_MAP)
+    cleaned["segment"] = _normalise_segment(cleaned.get("segment"))
     cleaned["carClass"] = _map_enum(
         cleaned.get("carClass"), CAR_CLASS_MAP, default_upper=False, allow_empty=True
     )
+
+    if not cleaned["carClass"]:
+        cleaned["carClass"] = _infer_car_class(cleaned)
 
     if cleaned.get("engineCode") == "":
         cleaned["engineCode"] = DEFAULT_ENGINE_CODE
@@ -119,6 +123,16 @@ def _map_enum(
 ) -> str:
     if not value:
         return "" if allow_empty else ""
+
+    if mapping is TRANSMISSION_MAP and value:
+        raw_upper = value.upper()
+        if "DSG" in raw_upper or "DCT" in raw_upper:
+            return "AUTOMATIC"
+    if mapping is DRIVE_WHEELS_MAP and value:
+        raw_upper = value.upper()
+        if "4X4" in raw_upper:
+            return "FOUR"
+
     key = _normalise_key(value)
     mapped = mapping.get(key)
     if mapped:
@@ -201,6 +215,52 @@ def refresh_location_map() -> None:
         delattr(_load_location_map, "_cache")
 
 
+def _normalise_segment(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return value.strip().upper()
+
+
+def _infer_car_class(cleaned: Dict[str, str]) -> str:
+    """Infer car class based on core vehicle parameters."""
+
+    power = _safe_int(cleaned.get("power"))
+    cubic_capacity = _safe_int(cleaned.get("cubicCapacity"))
+    doors = _safe_int(cleaned.get("doors"))
+    vehicle_type = (cleaned.get("type") or "").upper()
+    segment = (cleaned.get("segment") or "").upper()
+
+    if (
+        power >= 250
+        or cubic_capacity >= 3000
+        or (vehicle_type == "COUPE" and power >= 200)
+        or (vehicle_type in {"CABRIOLET", "KABRIOLET"} and power >= 180)
+    ):
+        return "ADRENALINE"
+
+    if doors >= 4 and vehicle_type in {"ESTATE", "SUV", "MINIVAN"} and power < 250:
+        return "FAMILY"
+
+    if (
+        vehicle_type in {"SALOON", "SEDAN"}
+        and doors == 4
+        and segment in {"D", "E"}
+        and power < 250
+    ):
+        return "BUSINESS"
+
+    return "SWEET"
+
+
+def _safe_int(value: Optional[str]) -> int:
+    if value in (None, ""):
+        return 0
+    try:
+        return int(float(value))
+    except ValueError:
+        return 0
+
+
 CATEGORY_MAP = {
     "osobowy": "PASSENGER",
     "dostawczy": "DELIVERY",
@@ -223,6 +283,7 @@ FUEL_MAP = {
 TRANSMISSION_MAP = {
     "automatycznahydraulicznaklasyczna": "AUTOMATIC",
     "automatyczna": "AUTOMATIC",
+    "automatycznadwusprzegowadctdsg": "AUTOMATIC",
     "manualna": "MANUAL",
     "automat": "AUTOMATIC",
 }
@@ -243,6 +304,9 @@ DRIVE_WHEELS_MAP = {
 VEHICLE_TYPE_MAP = {
     "suv": "SUV",
     "kombi": "ESTATE",
+    "minivan": "MINIVAN",
+    "coupe": "COUPE",
+    "kabriolet": "CABRIOLET",
     "hatchback": "HATCHBACK",
     "van": "VAN",
     "sedan": "SALOON",

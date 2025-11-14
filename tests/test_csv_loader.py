@@ -83,3 +83,27 @@ def test_partner_specific_values_are_normalised(tmp_path: Path) -> None:
     assert second.drive_wheels == "FOUR"
     assert second.acceleration == 0.0
     assert second.power == 140
+
+
+def test_car_class_is_inferred_when_missing(tmp_path: Path) -> None:
+    csv_content = dedent(
+        """
+        configurationNumber,vin,category,make,model,manufactureYear,mileage,engineCode,cubicCapacity,acceleration,fuelType,power,transmissionType,driveWheels,type,carClass,doors,color,availableFrom,firstRegistrationDate,description,pricing_listPrice,pricing_salesPrice,pricing_miniPrice,locationId,segment
+        CONF-AD,ADRENALINEVIN,PASSENGER,BMW,M3,2022,10000,S58,2993,4.1,PETROL,320,AUTOMATIC,Na przednie koła,Coupe,,2,Blue,2025-01-01,,ABS,300000.00,290000.00,280000.00,1,
+        CONF-FM,FAMILYVIN,PASSENGER,Toyota,RAV4,2021,20000,M20A,2487,8.0,HYBRID,180,AUTOMATIC,Na przednie koła,SUV,,5,Green,2025-01-01,,ESP,180000.00,170000.00,160000.00,1,C
+        CONF-BZ,BUSINESSVIN,PASSENGER,Audi,A6,2020,15000,EA888,1984,7.1,PETROL,220,AUTOMATIC,Na przednie koła,Sedan,,4,Black,2025-01-01,,HUD,250000.00,240000.00,230000.00,1,D
+        CONF-SW,SWEETVIN,PASSENGER,Fiat,500,2023,5000,312A1000,999,12.0,PETROL,69,MANUAL,Na przednie koła,Hatchback,,3,Red,2025-01-01,,A/C,80000.00,75000.00,70000.00,1,A
+        """
+    ).strip()
+    path = tmp_path / "vehicles.csv"
+    path.write_text(csv_content, encoding="utf-8")
+
+    vehicles, errors = load_vehicles_from_csv(path)
+
+    assert not errors
+    assert [vehicle.car_class for vehicle in vehicles] == [
+        "ADRENALINE",
+        "FAMILY",
+        "BUSINESS",
+        "SWEET",
+    ]
