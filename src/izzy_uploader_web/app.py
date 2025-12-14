@@ -29,6 +29,7 @@ from izzy_uploader.normalizers import (
 )
 from izzy_uploader.pipelines.import_pipeline import VehicleSynchronizer
 from izzy_uploader.state import ImageStateStore, VehicleStateStore
+from izzy_uploader_web.api import api_bp
 
 REPORTS: Dict[str, Dict[str, str]] = {}
 
@@ -298,6 +299,7 @@ def create_app() -> Flask:
         )
 
     app.register_blueprint(bp)
+    app.register_blueprint(api_bp)
     return app
 
 
