@@ -19,9 +19,13 @@ src/izzy_uploader.egg-info/top_level.txt
 src/izzy_uploader/pipelines/import_pipeline.py
 src/izzy_uploader_web/__init__.py
 src/izzy_uploader_web/app.py
+src/izzy_uploader_web/wsgi.py
+src/izzy_uploader_web/static/favicon.ico
 src/izzy_uploader_web/templates/base.html
 src/izzy_uploader_web/templates/index.html
 src/izzy_uploader_web/templates/locations.html
+src/izzy_uploader_web/templates/photos.html
 src/izzy_uploader_web/templates/result.html
+tests/test_client_images.py
 tests/test_csv_loader.py
 tests/test_pipeline.py

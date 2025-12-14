@@ -80,3 +80,31 @@ Stworzenie prostego, łatwego w utrzymaniu serwisu, który importuje pojazdy z p
 3. Rozszerzyć o scenariusze zamykania brakujących ofert i aktualizacji cen. ✅ Obsługiwane przez `VehicleSynchronizer` (parametry `close_missing`, `update_prices`).
 4. Dodać interfejs użytkownika i automatyzację. ✅ CLI `izzy-uploader` w `cli.py`; automatyzacja testów przez `pytest`.
 5. Utrzymywać dokumentację i testy wraz z rozwojem. ✅ Dodano testy jednostkowe i zaktualizowano `READ.md`.
+
+## Wyciąg z dokumentacji API Izzylease (dostarczone dane)
+
+### Autoryzacja
+- Base URL prod: `https://api.izzylease.pl`.
+- OAuth2 Client Credentials – token pobierany pod `POST /oauth/token` z parametrami `client_id`, `client_secret`, `grant_type=client_credentials` (content-type `application/x-www-form-urlencoded`).
+- Token zwraca pola: `access_token`, `token_type`, `expires_in`, `scope`, `jti`. Wszystkie zapytania muszą mieć nagłówek `Authorization: <token_type> <access_token>`.
+- Klucze (`client_id`, `client_secret`) muszą być przechowywane bezpiecznie; każde środowisko powinno korzystać z sekre­tów (vault/zmienne środowiskowe), brak logowania wartości.
+
+### Zarządzanie samochodami
+- Dodanie pojazdu: `POST /external/cars` (body JSON z polami opisanymi w dokumentacji; wymagane m.in. `category`, `make`, `model`, `engineCode`, `cubicCapacity`, `acceleration`, `fuelType`, `transmissionType`, `driveWheels`, `type`, `color`, `pricing.listPrice`, `pricing.salesPrice`). Odpowiedź zawiera `id` nowego pojazdu.
+- Aktualizacja pojazdu: `PUT /external/cars/{car_id}` (body jak przy tworzeniu).
+- Usuwanie pojazdu: `DELETE /external/cars/{car_id}` z opcjonalnym body JSON `{ "reason": "DELETED" | "SOLD" }`.
+
+### Zarządzanie zdjęciami pojazdu
+- Dodanie zdjęcia: `POST /external/cars/{car_id}/images` (multipart/form-data, część `image`, wymagany poprawny `content-type` pliku). Odpowiedź zawiera `imageId`.
+- Usunięcie zdjęcia: `DELETE /external/cars/{car_id}/images/{image_id}`.
+- System deklaruje obsługę dowolnych formatów graficznych; brak innych ograniczeń w dostarczonym fragmencie dokumentacji.
+
+### Strona do testowego uploadu zdjęć (MVP)
+- Cel: narzędzie wewnętrzne do przetestowania procesu uploadu/aktualizacji zdjęć przed wystawieniem publicznego API partnerom.
+- Pola/formularz: ID pojazdu, upload zdjęcia głównego oraz wielu dodatkowych zdjęć (dowolne formaty graficzne, poprawny `content-type`).
+- Prostota UI: brak podglądu miniatur; wystarczą kontrolki uploadu i statusy powodzenia/błędu.
+- API: wykorzystanie istniejących endpointów dodawania/usuwania zdjęć; w kolejnych iteracjach wystawienie publicznego API z tym zakresem funkcji.
+
+### Dalsze kroki
+- Uzupełnić klienta API o obsługę tokenu (`/oauth/token`) i endpointów pojazdów/zdjęć (multipart upload), z zachowaniem wymagań autoryzacyjnych.
+- Przygotować walidacje po stronie UI dla scenariusza uploadu zdjęć (dowolne formaty, poprawny `content-type`) oraz obsłużyć przypadki ponowień usuwania/dodawania na błędach HTTP.

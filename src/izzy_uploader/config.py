@@ -21,6 +21,7 @@ class ServiceConfig:
     client_secret: str
     dealer_id: Optional[str]
     state_file: Path
+    image_state_file: Path
     timeout: float = 10.0
 
     @staticmethod
@@ -45,6 +46,11 @@ class ServiceConfig:
             state_file = Path(state_file_env).expanduser().resolve()
         else:
             state_file = Path.home() / ".izzy_uploader" / "state.json"
+        image_state_file_env = os.getenv(f"{prefix}IMAGE_STATE_FILE")
+        if image_state_file_env:
+            image_state_file = Path(image_state_file_env).expanduser().resolve()
+        else:
+            image_state_file = Path.home() / ".izzy_uploader" / "image_state.json"
         timeout_raw: Optional[str] = os.getenv(f"{prefix}TIMEOUT", "10")
 
         try:
@@ -61,6 +67,7 @@ class ServiceConfig:
             client_secret=client_secret,
             dealer_id=dealer_id,
             state_file=state_file,
+            image_state_file=image_state_file,
             timeout=timeout,
         )
 
