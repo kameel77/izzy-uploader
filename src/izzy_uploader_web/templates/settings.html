@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <h2>Połączenie z Izzylease</h2>
+  <p>Podaj dane klienta Izzylease. Będą użyte tylko w Twojej sesji (zapisywane w sesji przeglądarki po stronie serwera).</p>
+
+  <form method="post" action="{{ url_for('web.settings') }}">
+    <label for="api_base_url">API Base URL</label>
+    <input id="api_base_url" type="text" name="api_base_url" value="{{ api_base_url }}" required placeholder="https://api-izzylease.example" />
+
+    <label for="client_id">Client ID</label>
+    <input id="client_id" type="text" name="client_id" value="{{ client_id }}" required />
+
+    <label for="client_secret">Client Secret</label>
+    <input id="client_secret" type="password" name="client_secret" value="{{ client_secret }}" required />
+
+    <label for="token_url">Token URL (opcjonalnie)</label>
+    <input id="token_url" type="text" name="token_url" value="{{ token_url }}" placeholder="https://.../oauth/token" />
+
+    <label for="dealer_id">Dealer ID (opcjonalnie)</label>
+    <input id="dealer_id" type="text" name="dealer_id" value="{{ dealer_id }}" />
+
+    <button type="submit">Zapisz i używaj w sesji</button>
+  </form>
+{% endblock %}

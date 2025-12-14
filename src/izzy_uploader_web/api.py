@@ -17,8 +17,27 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
 # -- helpers -----------------------------------------------------------------
+def _extract_overrides_from_request() -> Optional[Dict[str, str]]:
+    """Allow overriding Izzylease credentials via headers (for partner-specific calls)."""
+
+    header_map = {
+        "API_BASE_URL": "X-IZZY-API-BASE-URL",
+        "CLIENT_ID": "X-IZZY-CLIENT-ID",
+        "CLIENT_SECRET": "X-IZZY-CLIENT-SECRET",
+        "TOKEN_URL": "X-IZZY-TOKEN-URL",
+        "DEALER_ID": "X-IZZY-DEALER-ID",
+    }
+    overrides: Dict[str, str] = {}
+    for key, header_name in header_map.items():
+        value = request.headers.get(header_name)
+        if value:
+            overrides[key] = value
+    return overrides or None
+
+
 def _load_services() -> Tuple[ServiceConfig, IzzyleaseClient, VehicleStateStore, ImageStateStore]:
-    config = ServiceConfig.from_env()
+    overrides = _extract_overrides_from_request()
+    config = ServiceConfig.from_env(overrides=overrides)
     client = IzzyleaseClient(config)
     vehicle_state = VehicleStateStore(config.state_file)
     image_state = ImageStateStore(config.image_state_file)
