@@ -2,6 +2,7 @@
 
 {% block content %}
   <p>Przetestuj przesyłanie zdjęć pojazdu. Wprowadź ID pojazdu, wybierz zdjęcie główne oraz dodatkowe pliki graficzne. Możesz też podać identyfikatory istniejących zdjęć do usunięcia.</p>
+  <p>Uploader zapamiętuje ID przesłanych zdjęć lokalnie (plik <code>image_state.json</code>) i może je potem usunąć zbiorczo.</p>
 
   <form method="post" action="{{ url_for('web.photos') }}" enctype="multipart/form-data">
     <label for="car_id">ID pojazdu</label>
@@ -15,6 +16,11 @@
 
     <label for="delete_image_ids">ID zdjęć do usunięcia (oddziel spacją lub przecinkiem)</label>
     <input id="delete_image_ids" type="text" name="delete_image_ids" placeholder="np. 61d6c108-..." value="{{ request.form.get('delete_image_ids', '') }}" />
+
+    <label class="inline-checkbox">
+      <input type="checkbox" name="delete_all_images" {% if request.form.get('delete_all_images') %}checked{% endif %} />
+      Usuń wszystkie zdjęcia dla pojazdu
+    </label>
 
     <button type="submit">Wyślij żądania</button>
   </form>

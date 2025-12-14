@@ -79,6 +79,24 @@ class IzzyleaseClient:
 
         self._request("DELETE", f"/external/cars/{car_id}/images/{image_id}")
 
+    def list_car_images(self, car_id: str) -> Any:
+        """Return all images for a vehicle."""
+
+        return self._request("GET", f"/external/cars/{car_id}/images")
+
+    def delete_all_car_images(self, car_id: str) -> None:
+        """Delete all images for a vehicle by listing and removing each image."""
+
+        images = self.list_car_images(car_id)
+        if not images:
+            return
+
+        for image in images:
+            image_id = image.get("id") or image.get("imageId")
+            if not image_id:
+                continue
+            self.delete_car_image(car_id, str(image_id))
+
     # -- HTTP helper -------------------------------------------------
     def _request(
         self,

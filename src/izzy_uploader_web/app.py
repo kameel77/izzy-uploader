@@ -28,7 +28,7 @@ from izzy_uploader.normalizers import (
     save_location_map,
 )
 from izzy_uploader.pipelines.import_pipeline import VehicleSynchronizer
-from izzy_uploader.state import VehicleStateStore
+from izzy_uploader.state import ImageStateStore, VehicleStateStore
 
 REPORTS: Dict[str, Dict[str, str]] = {}
 
@@ -72,6 +72,7 @@ def create_app() -> Flask:
         update_prices = request.form.get("update_prices") == "on"
 
         state_store = VehicleStateStore(config.state_file)
+        image_state = ImageStateStore(config.image_state_file)
         synchronizer = VehicleSynchronizer(IzzyleaseClient(config), state_store)
         report = synchronizer.run(
             vehicles,
@@ -141,6 +142,7 @@ def create_app() -> Flask:
             return render_template("photos.html")
 
         car_id = (request.form.get("car_id") or "").strip()
+        delete_all = request.form.get("delete_all_images") == "on"
         main_image = request.files.get("main_image")
         extra_images = request.files.getlist("extra_images")
         delete_image_ids_raw = (request.form.get("delete_image_ids") or "").strip()
@@ -152,8 +154,11 @@ def create_app() -> Flask:
         all_files = [file for file in [main_image] + extra_images if file and file.filename]
         delete_ids = [item for item in delete_image_ids_raw.replace(",", " ").split() if item]
 
-        if not all_files and not delete_ids:
-            flash("Dodaj co najmniej jedno zdjęcie lub identyfikator do usunięcia.", "error")
+        if not all_files and not delete_ids and not delete_all:
+            flash(
+                "Dodaj co najmniej jedno zdjęcie, identyfikator do usunięcia lub zaznacz usunięcie wszystkich.",
+                "error",
+            )
             return render_template("photos.html", car_id=car_id)
 
         try:
@@ -164,6 +169,7 @@ def create_app() -> Flask:
 
         client = IzzyleaseClient(config)
         upload_results = []
+        image_state = ImageStateStore(config.image_state_file)
 
         def _upload_image(file, label: str) -> None:
             content = file.read()
@@ -189,6 +195,7 @@ def create_app() -> Flask:
                     "label": label,
                     "status": "success",
                     "message": f"Przesłano (imageId: {image_id}).",
+                    "image_id": image_id,
                 }
             )
 
@@ -200,6 +207,58 @@ def create_app() -> Flask:
                 _upload_image(file, f"Zdjęcie dodatkowe #{index}")
 
         deletion_results = []
+        changed_state = False
+        if delete_all:
+            try:
+                known_images = image_state.get_images(car_id)
+                if not known_images:
+                    deletion_results.append(
+                        {
+                            "label": "Wszystkie zdjęcia",
+                            "status": "error",
+                            "message": "Brak zapamiętanych zdjęć dla tego pojazdu.",
+                        }
+                    )
+                else:
+                    for image_id in known_images:
+                        try:
+                            client.delete_car_image(car_id, image_id)
+                            deletion_results.append(
+                                {
+                                    "label": image_id,
+                                    "status": "success",
+                                    "message": "Usunięto zdjęcie.",
+                                }
+                            )
+                            image_state.remove_image(car_id, image_id)
+                            changed_state = True
+                        except Exception as exc:  # pragma: no cover - network failure path
+                            deletion_results.append(
+                                {
+                                    "label": image_id,
+                                    "status": "error",
+                                    "message": str(exc),
+                                }
+                            )
+
+                deletion_results.append(
+                    {
+                        "label": "Wszystkie zdjęcia",
+                        "status": "success" if known_images else "error",
+                        "message": "Usunięto wszystkie zapamiętane zdjęcia dla pojazdu."
+                        if known_images
+                        else "Brak zapamiętanych zdjęć do usunięcia.",
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - network failure path
+                deletion_results.append(
+                    {
+                        "label": "Wszystkie zdjęcia",
+                        "status": "error",
+                        "message": str(exc),
+                    }
+                )
+
         for image_id in delete_ids:
             try:
                 client.delete_car_image(car_id, image_id)
@@ -210,6 +269,8 @@ def create_app() -> Flask:
                         "message": "Usunięto zdjęcie.",
                     }
                 )
+                image_state.remove_image(car_id, image_id)
+                changed_state = True
             except Exception as exc:  # pragma: no cover - network failure path
                 deletion_results.append(
                     {
@@ -218,6 +279,16 @@ def create_app() -> Flask:
                         "message": str(exc),
                     }
                 )
+
+        # zapisz stan zdjęć gdy coś się zmieniło lub dodaliśmy nowe
+        if upload_results:
+            for result in upload_results:
+                if result.get("status") == "success" and result.get("image_id"):
+                    image_state.add_image(car_id, str(result["image_id"]))
+                    changed_state = True
+
+        if changed_state:
+            image_state.save()
 
         return render_template(
             "photos.html",

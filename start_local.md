@@ -49,7 +49,7 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
 2. Zainstaluj pakiet wraz z narzędziami deweloperskimi (do testów):
    ```bash
    pip install --upgrade pip
-   pip install -e .[dev]
+   pip install -e '.[dev]'
    ```
 
 ## 5. Przygotowanie danych i konfiguracji
@@ -65,11 +65,13 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
    - macOS/Linux:
      ```bash
      export IZZYLEASE_API_BASE_URL="https://twoj-serwer.izzylease.example"
-     export IZZYLEASE_CLIENT_ID="<client_id_z_pliku_konfiguracyjnego>"
-     export IZZYLEASE_CLIENT_SECRET="<client_secret_z_pliku_konfiguracyjnego>"
-     export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
-     # opcjonalnie ścieżka do mapowania ID salonów partnera na UUID w Izzylease
-     export IZZYLEASE_LOCATION_MAP_FILE="$PWD/config/location_map.json"
+    export IZZYLEASE_CLIENT_ID="<client_id_z_pliku_konfiguracyjnego>"
+    export IZZYLEASE_CLIENT_SECRET="<client_secret_z_pliku_konfiguracyjnego>"
+    export IZZYLEASE_STATE_FILE="$HOME/.izzy_uploader/state.json"
+    # opcjonalnie ścieżka do mapowania ID salonów partnera na UUID w Izzylease
+    export IZZYLEASE_LOCATION_MAP_FILE="$PWD/config/location_map.json"
+    # opcjonalnie ścieżka do lokalnego pliku z zapamiętanymi imageId
+    export IZZYLEASE_IMAGE_STATE_FILE="$HOME/.izzy_uploader/image_state.json"
      ```
    Zmienna `IZZYLEASE_STATE_FILE` jest opcjonalna – jeśli jej nie ustawisz, aplikacja zapisze lokalne mapowanie VIN → car_id w katalogu domowym. Jeżeli nie masz jeszcze danych dostępowych (`client_id`/`client_secret`), poproś administratora platformy Izzylease.
 
@@ -103,6 +105,7 @@ Interfejs webowy wymaga tych samych zmiennych środowiskowych co wersja CLI (Com
 - `IZZYLEASE_STATE_FILE` - ścieżka do pliku stanu (domyślnie: `~/.izzy_uploader/state.json`)
 - `IZZYLEASE_TIMEOUT` - timeout dla requestów w sekundach (domyślnie: 10)
 - `IZZYLEASE_LOCATION_MAP_FILE` - ścieżka do pliku mapowania lokalizacji (domyślnie: `config/location_map.json`)
+- `IZZYLEASE_IMAGE_STATE_FILE` - ścieżka do lokalnego pliku z zapamiętanymi `imageId` (domyślnie: `~/.izzy_uploader/image_state.json`)
 
 Jeśli zmienne nie są ustawione, aplikacja wyświetli błąd o brakującej konfiguracji.
 
