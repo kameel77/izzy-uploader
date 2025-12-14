@@ -85,10 +85,25 @@ Skopiuj plik `.env.example` i uzupełnij wartości:
 ```bash
 cp .env.example .env
 ```
-Kluczowe zmienne:
-- `IZZYLEASE_API_BASE_URL`, `IZZYLEASE_CLIENT_ID`, `IZZYLEASE_CLIENT_SECRET`
-- Ścieżki do plików stanu (np. `/srv/data/izzy-uploader/state.json`)
-- Opcjonalnie konfiguracja SMTP dla powiadomień (jeśli przewidziano)
+
+#### Wymagane zmienne środowiskowe
+
+Aplikacja webowa i CLI wymagają tych samych zmiennych środowiskowych:
+
+**Zmienne obowiązkowe:**
+- `IZZYLEASE_API_BASE_URL` - bazowy URL API (np. `https://twoj-serwer.izzylease.example`)
+- `IZZYLEASE_CLIENT_ID` - ID klienta OAuth do autoryzacji
+- `IZZYLEASE_CLIENT_SECRET` - sekret klienta OAuth do autoryzacji
+
+**Zmienne opcjonalne:**
+- `IZZYLEASE_TOKEN_URL` - URL do tokenu OAuth (domyślnie: `{API_BASE_URL}/oauth/token`)
+- `IZZYLEASE_DEALER_ID` - identyfikator dealera
+- `IZZYLEASE_STATE_FILE` - ścieżka do pliku stanu (np. `/srv/data/izzy-uploader/state.json`, domyślnie: `~/.izzy_uploader/state.json`)
+- `IZZYLEASE_TIMEOUT` - timeout dla requestów w sekundach (domyślnie: 10)
+- `IZZYLEASE_LOCATION_MAP_FILE` - ścieżka do pliku mapowania lokalizacji (domyślnie: `config/location_map.json`)
+
+**Dodatkowe zmienne (jeśli przewidziano):**
+- Konfiguracja SMTP dla powiadomień
 
 Najbezpieczniej przechowywać `.env` w `/srv/secrets/izzy-uploader.env` i odwoływać się do niego z docker-compose / systemd.
 

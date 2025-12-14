@@ -88,6 +88,24 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
 3. Wejdź na `http://127.0.0.1:5000`, wybierz plik CSV i pobierz raport JSON.
 4. W zakładce „Mapowanie lokalizacji” możesz dopisywać pary `partner_id → UUID`. Zmiany trafiają do pliku z mapą lokalizacji (domyślnie `config/location_map.json`).
 
+### Wymagane zmienne środowiskowe dla interfejsu webowego
+
+Interfejs webowy wymaga tych samych zmiennych środowiskowych co wersja CLI (Command Line Interface). Upewnij się, że przed uruchomieniem aplikacji webowej ustawiłeś następujące zmienne:
+
+**Zmienne obowiązkowe:**
+- `IZZYLEASE_API_BASE_URL` - bazowy URL API (np. `https://twoj-serwer.izzylease.example`)
+- `IZZYLEASE_CLIENT_ID` - ID klienta OAuth do autoryzacji
+- `IZZYLEASE_CLIENT_SECRET` - sekret klienta OAuth do autoryzacji
+
+**Zmienne opcjonalne:**
+- `IZZYLEASE_TOKEN_URL` - URL do tokenu OAuth (domyślnie: `{API_BASE_URL}/oauth/token`)
+- `IZZYLEASE_DEALER_ID` - identyfikator dealera
+- `IZZYLEASE_STATE_FILE` - ścieżka do pliku stanu (domyślnie: `~/.izzy_uploader/state.json`)
+- `IZZYLEASE_TIMEOUT` - timeout dla requestów w sekundach (domyślnie: 10)
+- `IZZYLEASE_LOCATION_MAP_FILE` - ścieżka do pliku mapowania lokalizacji (domyślnie: `config/location_map.json`)
+
+Jeśli zmienne nie są ustawione, aplikacja wyświetli błąd o brakującej konfiguracji.
+
 ## 6. Uruchomienie narzędzia
 Podstawowa komenda uruchamiająca proces synchronizacji wygląda tak:
 ```bash
