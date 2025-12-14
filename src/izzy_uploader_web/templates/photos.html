@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <p>Przetestuj przesyłanie zdjęć pojazdu. Wprowadź ID pojazdu, wybierz zdjęcie główne oraz dodatkowe pliki graficzne. Możesz też podać identyfikatory istniejących zdjęć do usunięcia.</p>
+
+  <form method="post" action="{{ url_for('web.photos') }}" enctype="multipart/form-data">
+    <label for="car_id">ID pojazdu</label>
+    <input id="car_id" type="text" name="car_id" value="{{ car_id or '' }}" required />
+
+    <label for="main_image">Zdjęcie główne</label>
+    <input id="main_image" type="file" name="main_image" accept="image/*" />
+
+    <label for="extra_images">Dodatkowe zdjęcia (można wybrać wiele)</label>
+    <input id="extra_images" type="file" name="extra_images" accept="image/*" multiple />
+
+    <label for="delete_image_ids">ID zdjęć do usunięcia (oddziel spacją lub przecinkiem)</label>
+    <input id="delete_image_ids" type="text" name="delete_image_ids" placeholder="np. 61d6c108-..." value="{{ request.form.get('delete_image_ids', '') }}" />
+
+    <button type="submit">Wyślij żądania</button>
+  </form>
+
+  {% if upload_results %}
+    <h3>Wyniki przesyłania</h3>
+    <ul>
+      {% for result in upload_results %}
+        <li>
+          <strong>{{ result.label }}:</strong>
+          {% if result.status == 'success' %}
+            ✅ {{ result.message }}
+          {% else %}
+            ❌ {{ result.message }}
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if deletion_results %}
+    <h3>Wyniki usuwania</h3>
+    <ul>
+      {% for result in deletion_results %}
+        <li>
+          <strong>{{ result.label }}:</strong>
+          {% if result.status == 'success' %}
+            ✅ {{ result.message }}
+          {% else %}
+            ❌ {{ result.message }}
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

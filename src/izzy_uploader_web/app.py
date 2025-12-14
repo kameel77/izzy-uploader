@@ -135,6 +135,97 @@ def create_app() -> Flask:
             map_path=get_location_map_path(),
         )
 
+    @bp.route("/photos", methods=["GET", "POST"])
+    def photos() -> str:
+        if request.method == "GET":
+            return render_template("photos.html")
+
+        car_id = (request.form.get("car_id") or "").strip()
+        main_image = request.files.get("main_image")
+        extra_images = request.files.getlist("extra_images")
+        delete_image_ids_raw = (request.form.get("delete_image_ids") or "").strip()
+
+        if not car_id:
+            flash("Podaj ID pojazdu.", "error")
+            return render_template("photos.html")
+
+        all_files = [file for file in [main_image] + extra_images if file and file.filename]
+        delete_ids = [item for item in delete_image_ids_raw.replace(",", " ").split() if item]
+
+        if not all_files and not delete_ids:
+            flash("Dodaj co najmniej jedno zdjęcie lub identyfikator do usunięcia.", "error")
+            return render_template("photos.html", car_id=car_id)
+
+        try:
+            config = ServiceConfig.from_env()
+        except Exception as exc:  # pragma: no cover - environment misconfiguration
+            flash(str(exc), "error")
+            return render_template("photos.html", car_id=car_id)
+
+        client = IzzyleaseClient(config)
+        upload_results = []
+
+        def _upload_image(file, label: str) -> None:
+            content = file.read()
+            if not content:
+                upload_results.append(
+                    {"label": label, "status": "error", "message": "Plik jest pusty."}
+                )
+                return
+
+            content_type = file.mimetype or "application/octet-stream"
+            try:
+                image_id = client.upload_car_image(
+                    car_id, content, content_type=content_type, filename=file.filename
+                )
+            except Exception as exc:  # pragma: no cover - network failure path
+                upload_results.append(
+                    {"label": label, "status": "error", "message": str(exc)}
+                )
+                return
+
+            upload_results.append(
+                {
+                    "label": label,
+                    "status": "success",
+                    "message": f"Przesłano (imageId: {image_id}).",
+                }
+            )
+
+        if main_image and main_image.filename:
+            _upload_image(main_image, "Zdjęcie główne")
+
+        for index, file in enumerate(extra_images, start=1):
+            if file and file.filename:
+                _upload_image(file, f"Zdjęcie dodatkowe #{index}")
+
+        deletion_results = []
+        for image_id in delete_ids:
+            try:
+                client.delete_car_image(car_id, image_id)
+                deletion_results.append(
+                    {
+                        "label": image_id,
+                        "status": "success",
+                        "message": "Usunięto zdjęcie.",
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - network failure path
+                deletion_results.append(
+                    {
+                        "label": image_id,
+                        "status": "error",
+                        "message": str(exc),
+                    }
+                )
+
+        return render_template(
+            "photos.html",
+            car_id=car_id,
+            upload_results=upload_results,
+            deletion_results=deletion_results,
+        )
+
     app.register_blueprint(bp)
     return app
 
