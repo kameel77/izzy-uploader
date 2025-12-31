@@ -115,7 +115,10 @@ class VehicleSynchronizer:
 
                 # Upload images if available and not already uploaded
                 if self._image_state_store and (vehicle.featured_photo or vehicle.other_photos):
+                    LOGGER.info("Vehicle %s exists, checking for image uploads", state_car_id)
                     self._ensure_vehicle_images_uploaded(state_car_id, vehicle, report)
+                else:
+                    LOGGER.debug("No image state store or no images for existing vehicle %s", state_car_id)
 
                 return
             except Exception as exc:  # pylint: disable=broad-except
@@ -153,14 +156,19 @@ class VehicleSynchronizer:
     def _ensure_vehicle_images_uploaded(self, car_id: str, vehicle: Vehicle, report: PipelineReport) -> None:
         """Ensure all vehicle images are uploaded, avoiding duplicates."""
         if not self._image_state_store:
+            LOGGER.debug("No image state store available for vehicle %s", car_id)
             return
 
         # Check if we have any images to upload
         if not vehicle.featured_photo and not vehicle.other_photos:
+            LOGGER.debug("No images to upload for vehicle %s", car_id)
             return
+
+        LOGGER.info("Starting image upload check for vehicle %s (VIN: %s)", car_id, vehicle.vin)
 
         # Get currently uploaded images for this vehicle
         uploaded_images = set(self._image_state_store.get_images(car_id))
+        LOGGER.debug("Vehicle %s already has %d uploaded images: %s", car_id, len(uploaded_images), list(uploaded_images))
 
         # Collect all image URLs that should be uploaded
         expected_urls = []
@@ -168,22 +176,27 @@ class VehicleSynchronizer:
             expected_urls.append(vehicle.featured_photo)
         expected_urls.extend(vehicle.other_photos)
 
+        LOGGER.info("Vehicle %s should have %d images: %s", car_id, len(expected_urls), expected_urls)
+
         # Upload any missing images
         for url in expected_urls:
-            # For now, we'll upload all images since we don't track URL-to-ID mapping
-            # In a production system, you'd want to track which URLs have been uploaded
             try:
+                LOGGER.info("Downloading image from URL: %s", url)
                 with urllib.request.urlopen(url, timeout=30) as response:
                     image_data = response.read()
                     content_type = response.headers.get('Content-Type', 'image/jpeg')
                     filename = url.split('/')[-1] or 'image.jpg'
+                    LOGGER.info("Downloaded image %s: %d bytes, content-type: %s", url, len(image_data), content_type)
 
+                LOGGER.info("Uploading image %s to vehicle %s", filename, car_id)
                 image_id = self._client.upload_car_image(car_id, image_data, content_type=content_type, filename=filename)
+                LOGGER.info("Upload successful, received image_id: %s", image_id)
+
                 if image_id not in uploaded_images:
                     self._image_state_store.add_image(car_id, image_id)
-                    LOGGER.info("Uploaded new image %s for existing vehicle %s", url, car_id)
+                    LOGGER.info("Added image_id %s to state store for vehicle %s", image_id, car_id)
                 else:
-                    LOGGER.debug("Image %s already uploaded for vehicle %s", url, car_id)
+                    LOGGER.debug("Image %s already in state store for vehicle %s", image_id, car_id)
             except (URLError, Exception) as exc:
                 LOGGER.exception("Failed to upload image %s for existing vehicle %s", url, car_id)
                 report.record_error(f"image upload failed for {url}: {exc}", vin=vehicle.vin, car_id=car_id)
@@ -198,18 +211,25 @@ class VehicleSynchronizer:
             image_urls.append(vehicle.featured_photo)
         image_urls.extend(vehicle.other_photos)
 
+        LOGGER.info("Starting image upload for NEW vehicle %s (VIN: %s) with %d images", car_id, vehicle.vin, len(image_urls))
+
         for url in image_urls:
             try:
+                LOGGER.info("Downloading image from URL: %s", url)
                 with urllib.request.urlopen(url, timeout=30) as response:
                     image_data = response.read()
                     content_type = response.headers.get('Content-Type', 'image/jpeg')
                     filename = url.split('/')[-1] or 'image.jpg'
+                    LOGGER.info("Downloaded image %s: %d bytes, content-type: %s", url, len(image_data), content_type)
 
+                LOGGER.info("Uploading image %s to new vehicle %s", filename, car_id)
                 image_id = self._client.upload_car_image(car_id, image_data, content_type=content_type, filename=filename)
+                LOGGER.info("Upload successful for new vehicle, received image_id: %s", image_id)
+
                 self._image_state_store.add_image(car_id, image_id)
-                LOGGER.info("Uploaded image %s for vehicle %s", url, car_id)
+                LOGGER.info("Added image_id %s to state store for new vehicle %s", image_id, car_id)
             except (URLError, Exception) as exc:
-                LOGGER.exception("Failed to upload image %s for vehicle %s", url, car_id)
+                LOGGER.exception("Failed to upload image %s for new vehicle %s", url, car_id)
                 report.record_error(f"image upload failed for {url}: {exc}", vin=vehicle.vin, car_id=car_id)
 
     def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
