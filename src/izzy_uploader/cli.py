@@ -33,9 +33,17 @@ def sync_command(csv_path: Path, close_missing: bool, update_prices: bool, as_js
     config = ServiceConfig.from_env()
     client = IzzyleaseClient(config)
     state_store = VehicleStateStore(config.state_file)
-    image_state_store = ImageStateStore(config.state_file.parent / "images.json")
+    image_state_store = ImageStateStore(config.image_state_file)
+
+    LOGGER.info(f"Using image state file: {config.image_state_file}")
+    LOGGER.info(f"Image state store initialized: {image_state_store is not None}")
 
     vehicles, csv_errors = load_vehicles_from_csv(csv_path)
+
+    # Log image parsing results
+    for i, vehicle in enumerate(vehicles):
+        if vehicle.featured_photo or vehicle.other_photos:
+            LOGGER.info(f"Vehicle {i+1} ({vehicle.vin}): featured_photo={vehicle.featured_photo is not None}, other_photos={len(vehicle.other_photos)}")
 
     synchronizer = VehicleSynchronizer(client, state_store, image_state_store)
     report = synchronizer.run(vehicles, close_missing=close_missing, update_prices=update_prices)
