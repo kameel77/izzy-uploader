@@ -68,6 +68,7 @@ class VehicleSynchronizer:
         self._client = client
         self._state_store = state_store
         self._image_state_store = image_state_store
+        LOGGER.info(f"VehicleSynchronizer initialized with image_state_store: {image_state_store is not None}")
 
     def run(
         self,
