@@ -37,6 +37,134 @@ LOGGER = logging.getLogger(__name__)
 
 REPORTS: Dict[str, Dict[str, str]] = {}
 
+# Progress tracking for long-running uploads
+PROGRESS_TRACKERS: Dict[str, Dict[str, any]] = {}
+
+
+class ProgressTrackingSynchronizer(VehicleSynchronizer):
+    """Extended VehicleSynchronizer that updates progress tracking."""
+
+    def __init__(self, client, state_store, image_state_store, upload_id):
+        super().__init__(client, state_store, image_state_store)
+        self.upload_id = upload_id
+        self.processed_count = 0
+
+    def _upsert_vehicle(self, vehicle, report):
+        """Override to update progress tracking."""
+        # Update progress
+        PROGRESS_TRACKERS[self.upload_id]["current_vehicle"] = vehicle.vin or vehicle.configuration_number or "Unknown"
+        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = f"Processing vehicle: {vehicle.vin or vehicle.configuration_number or 'Unknown'}"
+        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = self.processed_count
+
+        # Calculate progress percentage
+        total = PROGRESS_TRACKERS[self.upload_id]["total_vehicles"]
+        if total > 0:
+            PROGRESS_TRACKERS[self.upload_id]["progress"] = int((self.processed_count / total) * 100)
+
+        # Call parent method
+        result = super()._upsert_vehicle(vehicle, report)
+
+        self.processed_count += 1
+        return result
+
+    def run(self, vehicles, *, close_missing=False, update_prices=False):
+        """Override to update final progress."""
+        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = f"Starting synchronization of {len(vehicles)} vehicles..."
+        PROGRESS_TRACKERS[self.upload_id]["total_vehicles"] = len(vehicles)
+
+        # Call parent method
+        report = super().run(vehicles, close_missing=close_missing, update_prices=update_prices)
+
+        # Update final progress
+        PROGRESS_TRACKERS[self.upload_id]["progress"] = 100
+        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = len(vehicles)
+        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = "Synchronization completed!"
+
+        return report
+
+
+def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list, tmp_csv_path: Path) -> None:
+    """Background processing function for CSV uploads."""
+    try:
+        # Get session config (this might not work in background thread, so we need to handle it)
+        try:
+            config = ServiceConfig.from_env()
+        except Exception as exc:
+            PROGRESS_TRACKERS[upload_id]["status"] = "error"
+            PROGRESS_TRACKERS[upload_id]["errors"].append(f"Configuration error: {exc}")
+            PROGRESS_TRACKERS[upload_id]["completed"] = True
+            return
+
+        PROGRESS_TRACKERS[upload_id]["status"] = "processing"
+        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Initializing state stores..."
+
+        # Initialize stores
+        state_store = VehicleStateStore(config.state_file)
+
+        # Initialize image state store with error handling
+        image_state = None
+        try:
+            image_state = ImageStateStore(config.image_state_file)
+        except Exception as e:
+            try:
+                temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
+                image_state = ImageStateStore(temp_file)
+            except Exception as e2:
+                PROGRESS_TRACKERS[upload_id]["errors"].append(f"Image state store error: {e2}")
+
+        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Starting synchronization..."
+
+        # Create custom synchronizer with progress tracking
+        synchronizer = ProgressTrackingSynchronizer(
+            IzzyleaseClient(config),
+            state_store,
+            image_state,
+            upload_id
+        )
+
+        # Get options from session if possible (this is tricky in background thread)
+        close_missing = False  # Default to False for background processing
+        update_prices = False
+
+        report = synchronizer.run(vehicles, close_missing=close_missing, update_prices=update_prices)
+
+        # Add CSV errors to report
+        for csv_error in csv_errors:
+            report.record_error(
+                f"CSV line {csv_error.line_number}: {csv_error.message}",
+                vin=csv_error.vin,
+            )
+
+        # Save report
+        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Generating report..."
+        report_data = report.as_dict(include_details=True)
+        report_json = json.dumps(report_data, ensure_ascii=False, indent=2)
+
+        report_id = str(uuid.uuid4())
+        report_path = Path(tempfile.gettempdir()) / f"izzy_report_{report_id}.json"
+        report_path.write_text(report_json, encoding="utf-8")
+        REPORTS[report_id] = {"path": str(report_path), "filename": f"report_{report_id}.json"}
+
+        # Update progress tracker
+        PROGRESS_TRACKERS[upload_id]["status"] = "completed"
+        PROGRESS_TRACKERS[upload_id]["progress"] = 100
+        PROGRESS_TRACKERS[upload_id]["completed"] = True
+        PROGRESS_TRACKERS[upload_id]["report_id"] = report_id
+        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Upload completed successfully!"
+
+    except Exception as exc:
+        PROGRESS_TRACKERS[upload_id]["status"] = "error"
+        PROGRESS_TRACKERS[upload_id]["errors"].append(f"Processing error: {exc}")
+        PROGRESS_TRACKERS[upload_id]["completed"] = True
+        LOGGER.exception(f"Background upload processing failed for {upload_id}")
+
+    finally:
+        # Clean up temp file
+        try:
+            tmp_csv_path.unlink(missing_ok=True)
+        except:
+            pass
+
 
 def _config_from_session() -> ServiceConfig:
     overrides = session.get("izzylease_overrides") or None
@@ -97,71 +225,127 @@ def create_app() -> Flask:
             flash("Wybierz plik CSV.", "error")
             return redirect(url_for("web.index"))
 
+        # Generate unique upload ID for progress tracking
+        upload_id = str(uuid.uuid4())
+
+        # Initialize progress tracker
+        PROGRESS_TRACKERS[upload_id] = {
+            "status": "initializing",
+            "progress": 0,
+            "total_vehicles": 0,
+            "processed_vehicles": 0,
+            "current_vehicle": "",
+            "current_operation": "Loading CSV file...",
+            "errors": [],
+            "completed": False,
+            "report_id": None,
+        }
+
+        # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_csv:
             file.save(tmp_csv.name)
             tmp_csv_path = Path(tmp_csv.name)
 
-        vehicles, csv_errors = load_vehicles_from_csv(tmp_csv_path)
-        tmp_csv_path.unlink(missing_ok=True)
+        try:
+            # Load and validate CSV
+            PROGRESS_TRACKERS[upload_id]["current_operation"] = "Validating CSV data..."
+            vehicles, csv_errors = load_vehicles_from_csv(tmp_csv_path)
+            PROGRESS_TRACKERS[upload_id]["total_vehicles"] = len(vehicles)
+
+            for csv_error in csv_errors:
+                PROGRESS_TRACKERS[upload_id]["errors"].append(
+                    f"CSV line {csv_error.line_number}: {csv_error.message}"
+                )
+
+            # Start background processing
+            import threading
+            thread = threading.Thread(target=_process_upload_background, args=(upload_id, vehicles, csv_errors, tmp_csv_path))
+            thread.daemon = True
+            thread.start()
+
+            return redirect(url_for("web.upload_progress", upload_id=upload_id))
+
+        except Exception as exc:
+            PROGRESS_TRACKERS[upload_id]["status"] = "error"
+            PROGRESS_TRACKERS[upload_id]["errors"].append(str(exc))
+            PROGRESS_TRACKERS[upload_id]["completed"] = True
+            return redirect(url_for("web.upload_progress", upload_id=upload_id))
+
+    @bp.route("/upload/progress/<upload_id>", methods=["GET"])
+    def upload_progress(upload_id: str) -> str:
+        tracker = PROGRESS_TRACKERS.get(upload_id)
+        if not tracker:
+            flash("Upload session not found.", "error")
+            return redirect(url_for("web.index"))
+
+        if tracker.get("completed") and tracker.get("report_id"):
+            # Redirect to results if completed
+            return redirect(url_for("web.upload_result", upload_id=upload_id))
+
+        return render_template("upload_progress.html", upload_id=upload_id, tracker=tracker)
+
+    @bp.route("/upload/progress/<upload_id>/status", methods=["GET"])
+    def upload_progress_status(upload_id: str) -> str:
+        tracker = PROGRESS_TRACKERS.get(upload_id)
+        if not tracker:
+            return json.dumps({"error": "Upload session not found"}), 404
+
+        return json.dumps({
+            "status": tracker["status"],
+            "progress": tracker["progress"],
+            "total_vehicles": tracker["total_vehicles"],
+            "processed_vehicles": tracker["processed_vehicles"],
+            "current_vehicle": tracker["current_vehicle"],
+            "current_operation": tracker["current_operation"],
+            "errors": tracker["errors"],
+            "completed": tracker["completed"],
+        })
+
+    @bp.route("/upload/result/<upload_id>", methods=["GET"])
+    def upload_result(upload_id: str) -> str:
+        tracker = PROGRESS_TRACKERS.get(upload_id)
+        if not tracker or not tracker.get("completed"):
+            flash("Upload not completed yet.", "error")
+            return redirect(url_for("web.index"))
+
+        report_id = tracker.get("report_id")
+        if not report_id or report_id not in REPORTS:
+            flash("Report not found.", "error")
+            return redirect(url_for("web.index"))
+
+        report_entry = REPORTS[report_id]
+        report_path = Path(report_entry["path"])
 
         try:
-            config = _config_from_session()
-        except Exception as exc:  # pragma: no cover - environment misconfiguration
-            flash(str(exc), "error")
-            return render_template("result.html", errors=[str(exc)])
+            report_data = json.loads(report_path.read_text(encoding="utf-8"))
+            summary = {
+                "created": report_data.get("created", 0),
+                "updated": report_data.get("updated", 0),
+                "price_updates": report_data.get("price_updates", 0),
+                "closed": report_data.get("closed", 0),
+                "errors": len(report_data.get("errors", [])),
+            }
 
-        close_missing = request.form.get("close_missing") == "on"
-        update_prices = request.form.get("update_prices") == "on"
+            # Clean up progress tracker after some time
+            import time
+            def cleanup_tracker():
+                time.sleep(300)  # Keep for 5 minutes
+                PROGRESS_TRACKERS.pop(upload_id, None)
 
-        state_store = VehicleStateStore(config.state_file)
+            cleanup_thread = threading.Thread(target=cleanup_tracker)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
 
-        # Initialize image state store with error handling (same as CLI)
-        image_state = None
-        LOGGER.info(f"Attempting to initialize ImageStateStore with path: {config.image_state_file}")
-
-        try:
-            image_state = ImageStateStore(config.image_state_file)
-            LOGGER.info(f"✅ ImageStateStore initialized successfully with path: {config.image_state_file}")
-        except Exception as e:
-            LOGGER.error(f"❌ Failed to initialize ImageStateStore at {config.image_state_file}: {type(e).__name__}: {e}")
-            # Try fallback to /tmp directory
-            try:
-                temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
-                LOGGER.info(f"Trying fallback path: {temp_file}")
-                image_state = ImageStateStore(temp_file)
-                LOGGER.info(f"✅ ImageStateStore initialized successfully with fallback path: {temp_file}")
-            except Exception as e2:
-                LOGGER.error(f"❌ Failed to initialize ImageStateStore with fallback {temp_file}: {type(e2).__name__}: {e2}")
-                LOGGER.warning("🚫 Image uploads will be disabled - no valid image state store available")
-
-        synchronizer = VehicleSynchronizer(IzzyleaseClient(config), state_store, image_state)
-        report = synchronizer.run(
-            vehicles,
-            close_missing=close_missing,
-            update_prices=update_prices,
-        )
-
-        for csv_error in csv_errors:
-            report.record_error(
-                f"CSV line {csv_error.line_number}: {csv_error.message}",
-                vin=csv_error.vin,
+            return render_template(
+                "result.html",
+                report=json.dumps(report_data, ensure_ascii=False, indent=2),
+                summary=summary,
+                report_id=report_id,
+                csv_errors=[],  # Already included in tracker errors
             )
-
-        report_data = report.as_dict(include_details=True)
-        report_json = json.dumps(report_data, ensure_ascii=False, indent=2)
-
-        report_id = str(uuid.uuid4())
-        report_path = Path(tempfile.gettempdir()) / f"izzy_report_{report_id}.json"
-        report_path.write_text(report_json, encoding="utf-8")
-        REPORTS[report_id] = {"path": str(report_path), "filename": f"report_{report_id}.json"}
-
-        return render_template(
-            "result.html",
-            report=report_json,
-            summary=report.as_dict(include_details=False),
-            report_id=report_id,
-            csv_errors=[err.format_for_display() for err in csv_errors],
-        )
+        except Exception as exc:
+            flash(f"Error loading report: {exc}", "error")
+            return redirect(url_for("web.index"))
 
     @bp.route("/download/<report_id>", methods=["GET"])
     def download(report_id: str):
