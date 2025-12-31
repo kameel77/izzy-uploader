@@ -126,7 +126,6 @@ def create_app() -> Flask:
             LOGGER.error(f"❌ Failed to initialize ImageStateStore at {config.image_state_file}: {type(e).__name__}: {e}")
             # Try fallback to /tmp directory
             try:
-                import tempfile
                 temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
                 LOGGER.info(f"Trying fallback path: {temp_file}")
                 image_state = ImageStateStore(temp_file)
