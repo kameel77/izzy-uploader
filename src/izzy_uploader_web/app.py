@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import uuid
@@ -31,6 +32,8 @@ from izzy_uploader.normalizers import (
 from izzy_uploader.pipelines.import_pipeline import VehicleSynchronizer
 from izzy_uploader.state import ImageStateStore, VehicleStateStore
 from izzy_uploader_web.api import api_bp
+
+LOGGER = logging.getLogger(__name__)
 
 REPORTS: Dict[str, Dict[str, str]] = {}
 
@@ -111,7 +114,27 @@ def create_app() -> Flask:
         update_prices = request.form.get("update_prices") == "on"
 
         state_store = VehicleStateStore(config.state_file)
-        image_state = ImageStateStore(config.image_state_file)
+
+        # Initialize image state store with error handling (same as CLI)
+        image_state = None
+        LOGGER.info(f"Attempting to initialize ImageStateStore with path: {config.image_state_file}")
+
+        try:
+            image_state = ImageStateStore(config.image_state_file)
+            LOGGER.info(f"✅ ImageStateStore initialized successfully with path: {config.image_state_file}")
+        except Exception as e:
+            LOGGER.error(f"❌ Failed to initialize ImageStateStore at {config.image_state_file}: {type(e).__name__}: {e}")
+            # Try fallback to /tmp directory
+            try:
+                import tempfile
+                temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
+                LOGGER.info(f"Trying fallback path: {temp_file}")
+                image_state = ImageStateStore(temp_file)
+                LOGGER.info(f"✅ ImageStateStore initialized successfully with fallback path: {temp_file}")
+            except Exception as e2:
+                LOGGER.error(f"❌ Failed to initialize ImageStateStore with fallback {temp_file}: {type(e2).__name__}: {e2}")
+                LOGGER.warning("🚫 Image uploads will be disabled - no valid image state store available")
+
         synchronizer = VehicleSynchronizer(IzzyleaseClient(config), state_store, image_state)
         report = synchronizer.run(
             vehicles,
