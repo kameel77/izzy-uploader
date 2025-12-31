@@ -35,6 +35,7 @@ def client_config(tmp_path: Path) -> ServiceConfig:
         client_secret="secret",
         dealer_id=None,
         state_file=tmp_path / "state.json",
+        image_state_file=tmp_path / "image_state.json",
         timeout=1.0,
     )
 

@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Set
+from urllib.error import URLError
 
 from ..client import IzzyleaseClient
 from ..models import Vehicle, unique_vins
-from ..state import VehicleStateStore
+from ..state import ImageStateStore, VehicleStateStore
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,9 +64,10 @@ class PipelineReport:
 class VehicleSynchronizer:
     """Coordinates vehicle synchronisation with the remote API."""
 
-    def __init__(self, client: IzzyleaseClient, state_store: VehicleStateStore):
+    def __init__(self, client: IzzyleaseClient, state_store: VehicleStateStore, image_state_store: Optional[ImageStateStore] = None):
         self._client = client
         self._state_store = state_store
+        self._image_state_store = image_state_store
 
     def run(
         self,
@@ -89,6 +92,8 @@ class VehicleSynchronizer:
 
         try:
             self._state_store.save()
+            if self._image_state_store:
+                self._image_state_store.save()
         except Exception as exc:  # pylint: disable=broad-except
             LOGGER.exception("Failed to persist vehicle state")
             report.record_error(f"Failed to persist synchronisation state: {exc}")
@@ -135,6 +140,34 @@ class VehicleSynchronizer:
         report.created += 1
         report.created_vehicles.append({"vin": vin_label, "car_id": created_id})
         self._state_store.mark_active(vin_label)
+
+        # Upload images if available
+        if self._image_state_store and (vehicle.featured_photo or vehicle.other_photos):
+            self._upload_vehicle_images(created_id, vehicle, report)
+
+    def _upload_vehicle_images(self, car_id: str, vehicle: Vehicle, report: PipelineReport) -> None:
+        """Download and upload images for a vehicle."""
+        assert self._image_state_store is not None
+
+        # Collect all image URLs
+        image_urls = []
+        if vehicle.featured_photo:
+            image_urls.append(vehicle.featured_photo)
+        image_urls.extend(vehicle.other_photos)
+
+        for url in image_urls:
+            try:
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    image_data = response.read()
+                    content_type = response.headers.get('Content-Type', 'image/jpeg')
+                    filename = url.split('/')[-1] or 'image.jpg'
+
+                image_id = self._client.upload_car_image(car_id, image_data, content_type=content_type, filename=filename)
+                self._image_state_store.add_image(car_id, image_id)
+                LOGGER.info("Uploaded image %s for vehicle %s", url, car_id)
+            except (URLError, Exception) as exc:
+                LOGGER.exception("Failed to upload image %s for vehicle %s", url, car_id)
+                report.record_error(f"image upload failed for {url}: {exc}", vin=vehicle.vin, car_id=car_id)
 
     def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
         known_vins = set(self._state_store.known_vins())

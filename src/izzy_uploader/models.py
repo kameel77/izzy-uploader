@@ -1,11 +1,11 @@
 """Domain models used by the Izzy Uploader service."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 class CarRemovalReason(Enum):
@@ -45,6 +45,8 @@ class Vehicle:
     registration_number: Optional[str] = None
     location_id: Optional[str] = None
     car_id: Optional[str] = None
+    featured_photo: Optional[str] = None
+    other_photos: List[str] = field(default_factory=list)
 
     def to_api_payload(self) -> Dict[str, Any]:
         """Serialise the vehicle to the payload expected by the dealer API."""
@@ -118,6 +120,16 @@ def vehicle_from_row(row: Dict[str, str]) -> Vehicle:
     list_price = _parse_decimal(require("pricing_listPrice"), "pricing_listPrice")
     sales_price = _parse_decimal(require("pricing_salesPrice"), "pricing_salesPrice")
 
+    # Parse car pictures
+    featured_photo = None
+    other_photos = []
+    car_pictures_raw = row.get("carPictures")
+    if car_pictures_raw:
+        urls = [url.strip() for url in car_pictures_raw.split("|") if url.strip()]
+        if urls:
+            featured_photo = urls[0]
+            other_photos = urls[1:]
+
     if missing:
         raise ValueError(f"Missing required CSV fields: {', '.join(sorted(set(missing)))}")
 
@@ -147,6 +159,8 @@ def vehicle_from_row(row: Dict[str, str]) -> Vehicle:
         sales_price=sales_price,
         registration_number=row.get("registrationNumber") or None,
         location_id=row.get("locationId") or None,
+        featured_photo=featured_photo,
+        other_photos=other_photos,
     )
 
 

@@ -89,6 +89,15 @@ Wirtualne środowisko pozwala zainstalować potrzebne biblioteki bez wpływu na 
    ```
 3. Wejdź na `http://127.0.0.1:5000`, wybierz plik CSV i pobierz raport JSON.
 4. W zakładce „Mapowanie lokalizacji” możesz dopisywać pary `partner_id → UUID`. Zmiany trafiają do pliku z mapą lokalizacji (domyślnie `config/location_map.json`).
+5. Dostępne jest też proste API (prefiks `/api`):
+   - `GET /api/health` – sprawdzenie stanu.
+   - `POST /api/vehicles/sync` – multipart z `file` (CSV), opcjonalnie `close_missing=true`.
+   - `POST /api/vehicles/<car_id>/images` – multipart z `main_image` i/lub `extra_images`.
+   - `DELETE /api/vehicles/<car_id>/images/<image_id>` – usuwa konkretne zdjęcie.
+   - `DELETE /api/vehicles/<car_id>/images` – JSON `{"image_ids": [...]}`
+     lub `{"delete_all": true}` (skorzysta z lokalnie zapamiętanych `imageId`).
+   - `POST /api/vehicles/<car_id>/images/replace` – multipart; opcjonalnie `delete_all=true`
+     lub `image_ids` (spacja/komy), plus nowe `main_image`/`extra_images`.
 
 ### Wymagane zmienne środowiskowe dla interfejsu webowego
 

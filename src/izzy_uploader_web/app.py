@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from flask import (
-    Blueprint,
     Flask,
     flash,
     redirect,
     render_template,
     request,
+    Blueprint,
+    session,
     send_file,
     url_for,
 )
@@ -29,8 +30,14 @@ from izzy_uploader.normalizers import (
 )
 from izzy_uploader.pipelines.import_pipeline import VehicleSynchronizer
 from izzy_uploader.state import ImageStateStore, VehicleStateStore
+from izzy_uploader_web.api import api_bp
 
 REPORTS: Dict[str, Dict[str, str]] = {}
+
+
+def _config_from_session() -> ServiceConfig:
+    overrides = session.get("izzylease_overrides") or None
+    return ServiceConfig.from_env(overrides=overrides)
 
 
 def create_app() -> Flask:
@@ -48,6 +55,38 @@ def create_app() -> Flask:
     def index() -> str:
         return render_template("index.html")
 
+    @bp.route("/settings", methods=["GET", "POST"])
+    def settings() -> str:
+        if request.method == "POST":
+            api_base_url = (request.form.get("api_base_url") or "").strip()
+            client_id = (request.form.get("client_id") or "").strip()
+            client_secret = (request.form.get("client_secret") or "").strip()
+            token_url = (request.form.get("token_url") or "").strip()
+            dealer_id = (request.form.get("dealer_id") or "").strip()
+
+            if not api_base_url or not client_id or not client_secret:
+                flash("Wprowadź API base URL, client_id oraz client_secret.", "error")
+            else:
+                session["izzylease_overrides"] = {
+                    "API_BASE_URL": api_base_url,
+                    "CLIENT_ID": client_id,
+                    "CLIENT_SECRET": client_secret,
+                    "TOKEN_URL": token_url,
+                    "DEALER_ID": dealer_id,
+                }
+                flash("Zapisano połączenie z Izzylease dla tej sesji.", "success")
+                return redirect(url_for("web.settings"))
+
+        overrides = session.get("izzylease_overrides", {})
+        return render_template(
+            "settings.html",
+            api_base_url=overrides.get("API_BASE_URL", ""),
+            client_id=overrides.get("CLIENT_ID", ""),
+            client_secret=overrides.get("CLIENT_SECRET", ""),
+            token_url=overrides.get("TOKEN_URL", ""),
+            dealer_id=overrides.get("DEALER_ID", ""),
+        )
+
     @bp.route("/upload", methods=["POST"])
     def upload() -> str:
         file = request.files.get("file")
@@ -63,7 +102,7 @@ def create_app() -> Flask:
         tmp_csv_path.unlink(missing_ok=True)
 
         try:
-            config = ServiceConfig.from_env()
+            config = _config_from_session()
         except Exception as exc:  # pragma: no cover - environment misconfiguration
             flash(str(exc), "error")
             return render_template("result.html", errors=[str(exc)])
@@ -162,7 +201,7 @@ def create_app() -> Flask:
             return render_template("photos.html", car_id=car_id)
 
         try:
-            config = ServiceConfig.from_env()
+            config = _config_from_session()
         except Exception as exc:  # pragma: no cover - environment misconfiguration
             flash(str(exc), "error")
             return render_template("photos.html", car_id=car_id)
@@ -298,6 +337,7 @@ def create_app() -> Flask:
         )
 
     app.register_blueprint(bp)
+    app.register_blueprint(api_bp)
     return app
 
 

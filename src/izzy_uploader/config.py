@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 
 class MissingConfiguration(RuntimeError):
@@ -25,7 +25,7 @@ class ServiceConfig:
     timeout: float = 10.0
 
     @staticmethod
-    def from_env(prefix: str = "IZZYLEASE_") -> "ServiceConfig":
+    def from_env(prefix: str = "IZZYLEASE_", overrides: Optional[Dict[str, str]] = None) -> "ServiceConfig":
         """Create a :class:`ServiceConfig` instance from environment variables.
 
         Parameters
@@ -34,13 +34,25 @@ class ServiceConfig:
             Prefix used for environment variables. The defaults expect
             ``IZZYLEASE_API_BASE_URL``, ``IZZYLEASE_CLIENT_ID`` i
             ``IZZYLEASE_CLIENT_SECRET``.
+        overrides:
+            Optional dict with keys like ``API_BASE_URL``, ``CLIENT_ID``, ``CLIENT_SECRET``,
+            ``TOKEN_URL``, ``DEALER_ID`` to override env values (used by web UI/API).
         """
 
-        base_url = _require_env(f"{prefix}API_BASE_URL")
-        client_id = _require_env(f"{prefix}CLIENT_ID")
-        client_secret = _require_env(f"{prefix}CLIENT_SECRET")
-        token_url = os.getenv(f"{prefix}TOKEN_URL") or f"{base_url.rstrip('/')}/oauth/token"
-        dealer_id = os.getenv(f"{prefix}DEALER_ID") or None
+        def _read(name: str, required: bool = False) -> str:
+            if overrides and name in overrides and overrides[name]:
+                return overrides[name]
+            if required:
+                return _require_env(f"{prefix}{name}")
+            return os.getenv(f"{prefix}{name}", "")
+
+        base_url = _read("API_BASE_URL", required=True)
+        client_id = _read("CLIENT_ID", required=True)
+        client_secret = _read("CLIENT_SECRET", required=True)
+        token_url_override = _read("TOKEN_URL")
+        token_url = token_url_override or f"{base_url.rstrip('/')}/oauth/token"
+        dealer_id_raw = _read("DEALER_ID")
+        dealer_id = dealer_id_raw or None
         state_file_env = os.getenv(f"{prefix}STATE_FILE")
         if state_file_env:
             state_file = Path(state_file_env).expanduser().resolve()
