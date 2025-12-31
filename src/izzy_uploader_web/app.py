@@ -112,7 +112,7 @@ def create_app() -> Flask:
 
         state_store = VehicleStateStore(config.state_file)
         image_state = ImageStateStore(config.image_state_file)
-        synchronizer = VehicleSynchronizer(IzzyleaseClient(config), state_store)
+        synchronizer = VehicleSynchronizer(IzzyleaseClient(config), state_store, image_state)
         report = synchronizer.run(
             vehicles,
             close_missing=close_missing,
