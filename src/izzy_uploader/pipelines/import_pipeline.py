@@ -183,7 +183,7 @@ class VehicleSynchronizer:
         for url in expected_urls:
             try:
                 LOGGER.info("Downloading image from URL: %s", url)
-                with urllib.request.urlopen(url, timeout=30) as response:
+                with urllib.request.urlopen(url, timeout=10) as response:  # Reduced timeout for web app
                     image_data = response.read()
                     content_type = response.headers.get('Content-Type', 'image/jpeg')
                     filename = url.split('/')[-1] or 'image.jpg'
@@ -217,7 +217,7 @@ class VehicleSynchronizer:
         for url in image_urls:
             try:
                 LOGGER.info("Downloading image from URL: %s", url)
-                with urllib.request.urlopen(url, timeout=30) as response:
+                with urllib.request.urlopen(url, timeout=10) as response:  # Reduced timeout for web app
                     image_data = response.read()
                     content_type = response.headers.get('Content-Type', 'image/jpeg')
                     filename = url.split('/')[-1] or 'image.jpg'
