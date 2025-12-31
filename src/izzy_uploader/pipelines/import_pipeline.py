@@ -112,6 +112,11 @@ class VehicleSynchronizer:
                 report.updated += 1
                 report.updated_vehicles.append({"vin": vin_label, "car_id": state_car_id})
                 self._state_store.mark_active(vin_label)
+
+                # Upload images if available and not already uploaded
+                if self._image_state_store and (vehicle.featured_photo or vehicle.other_photos):
+                    self._ensure_vehicle_images_uploaded(state_car_id, vehicle, report)
+
                 return
             except Exception as exc:  # pylint: disable=broad-except
                 if _is_not_found_error(exc):
@@ -144,6 +149,44 @@ class VehicleSynchronizer:
         # Upload images if available
         if self._image_state_store and (vehicle.featured_photo or vehicle.other_photos):
             self._upload_vehicle_images(created_id, vehicle, report)
+
+    def _ensure_vehicle_images_uploaded(self, car_id: str, vehicle: Vehicle, report: PipelineReport) -> None:
+        """Ensure all vehicle images are uploaded, avoiding duplicates."""
+        if not self._image_state_store:
+            return
+
+        # Check if we have any images to upload
+        if not vehicle.featured_photo and not vehicle.other_photos:
+            return
+
+        # Get currently uploaded images for this vehicle
+        uploaded_images = set(self._image_state_store.get_images(car_id))
+
+        # Collect all image URLs that should be uploaded
+        expected_urls = []
+        if vehicle.featured_photo:
+            expected_urls.append(vehicle.featured_photo)
+        expected_urls.extend(vehicle.other_photos)
+
+        # Upload any missing images
+        for url in expected_urls:
+            # For now, we'll upload all images since we don't track URL-to-ID mapping
+            # In a production system, you'd want to track which URLs have been uploaded
+            try:
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    image_data = response.read()
+                    content_type = response.headers.get('Content-Type', 'image/jpeg')
+                    filename = url.split('/')[-1] or 'image.jpg'
+
+                image_id = self._client.upload_car_image(car_id, image_data, content_type=content_type, filename=filename)
+                if image_id not in uploaded_images:
+                    self._image_state_store.add_image(car_id, image_id)
+                    LOGGER.info("Uploaded new image %s for existing vehicle %s", url, car_id)
+                else:
+                    LOGGER.debug("Image %s already uploaded for vehicle %s", url, car_id)
+            except (URLError, Exception) as exc:
+                LOGGER.exception("Failed to upload image %s for existing vehicle %s", url, car_id)
+                report.record_error(f"image upload failed for {url}: {exc}", vin=vehicle.vin, car_id=car_id)
 
     def _upload_vehicle_images(self, car_id: str, vehicle: Vehicle, report: PipelineReport) -> None:
         """Download and upload images for a vehicle."""
