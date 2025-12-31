@@ -8,8 +8,8 @@ from izzy_uploader.csv_loader import CsvRowError, load_vehicles_from_csv
 def test_loads_valid_vehicle(tmp_path: Path) -> None:
     csv_content = dedent(
         """
-        configurationNumber,vin,category,make,model,manufactureYear,mileage,engineCode,cubicCapacity,acceleration,fuelType,power,transmissionType,driveWheels,type,doors,color,pricing_listPrice,pricing_salesPrice
-        CONF-1,WBA8E31030K792716,PASSENGER,BMW,Seria 3,2020,15000,B48,1998,7.2,PETROL,184,AUTOMATIC,REAR,SALOON,4,Blue,200000.00,189999.99
+        configurationNumber,vin,category,make,model,manufactureYear,mileage,engineCode,cubicCapacity,acceleration,fuelType,power,transmissionType,driveWheels,type,doors,color,pricing_listPrice,pricing_salesPrice,carPictures
+        CONF-1,WBA8E31030K792716,PASSENGER,BMW,Seria 3,2020,15000,B48,1998,7.2,PETROL,184,AUTOMATIC,REAR,SALOON,4,Blue,200000.00,189999.99,https://example.com/image1.jpg |https://example.com/image2.jpg
         """
     ).strip()
     path = tmp_path / "vehicles.csv"
@@ -26,6 +26,8 @@ def test_loads_valid_vehicle(tmp_path: Path) -> None:
     assert vehicle.category == "PASSENGER"
     assert vehicle.list_price == Decimal("200000.00")
     assert vehicle.sales_price == Decimal("189999.99")
+    assert vehicle.featured_photo == "https://example.com/image1.jpg"
+    assert vehicle.other_photos == ["https://example.com/image2.jpg"]
 
 
 def test_invalid_rows_return_errors(tmp_path: Path) -> None:

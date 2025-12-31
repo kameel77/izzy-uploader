@@ -11,7 +11,7 @@ from .config import ServiceConfig
 from .csv_loader import load_vehicles_from_csv
 from .client import IzzyleaseClient
 from .pipelines.import_pipeline import PipelineReport, VehicleSynchronizer
-from .state import VehicleStateStore
+from .state import ImageStateStore, VehicleStateStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 LOGGER = logging.getLogger(__name__)
@@ -33,10 +33,11 @@ def sync_command(csv_path: Path, close_missing: bool, update_prices: bool, as_js
     config = ServiceConfig.from_env()
     client = IzzyleaseClient(config)
     state_store = VehicleStateStore(config.state_file)
+    image_state_store = ImageStateStore(config.state_file.parent / "images.json")
 
     vehicles, csv_errors = load_vehicles_from_csv(csv_path)
 
-    synchronizer = VehicleSynchronizer(client, state_store)
+    synchronizer = VehicleSynchronizer(client, state_store, image_state_store)
     report = synchronizer.run(vehicles, close_missing=close_missing, update_prices=update_prices)
 
     for csv_error in csv_errors:
