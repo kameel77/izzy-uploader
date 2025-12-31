@@ -33,10 +33,25 @@ def sync_command(csv_path: Path, close_missing: bool, update_prices: bool, as_js
     config = ServiceConfig.from_env()
     client = IzzyleaseClient(config)
     state_store = VehicleStateStore(config.state_file)
-    image_state_store = ImageStateStore(config.image_state_file)
 
-    LOGGER.info(f"Using image state file: {config.image_state_file}")
-    LOGGER.info(f"Image state store initialized: {image_state_store is not None}")
+    # Initialize image state store with error handling
+    image_state_store = None
+    try:
+        image_state_store = ImageStateStore(config.image_state_file)
+        LOGGER.info(f"Using image state file: {config.image_state_file}")
+        LOGGER.info(f"Image state store initialized successfully: {image_state_store is not None}")
+    except Exception as e:
+        LOGGER.error(f"Failed to initialize image state store at {config.image_state_file}: {e}")
+        # Try fallback to /tmp directory
+        try:
+            import tempfile
+            temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
+            image_state_store = ImageStateStore(temp_file)
+            LOGGER.info(f"Using fallback image state file: {temp_file}")
+            LOGGER.info("Image state store initialized with fallback path")
+        except Exception as e2:
+            LOGGER.error(f"Failed to initialize image state store with fallback: {e2}")
+            LOGGER.warning("Image uploads will be disabled")
 
     vehicles, csv_errors = load_vehicles_from_csv(csv_path)
 
