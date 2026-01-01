@@ -205,6 +205,7 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
         tracker["progress"] = 100
         tracker["completed"] = True
         tracker["report_id"] = report_id
+        tracker["report_path"] = str(report_path)  # Store the report file path in tracker
         tracker["current_operation"] = "Upload completed successfully!"
         _save_progress_tracker(upload_id, tracker)
 
@@ -373,12 +374,20 @@ def create_app() -> Flask:
             return redirect(url_for("web.index"))
 
         report_id = tracker.get("report_id")
-        if not report_id or report_id not in REPORTS:
+        if not report_id:
             flash("Report not found.", "error")
             return redirect(url_for("web.index"))
 
-        report_entry = REPORTS[report_id]
-        report_path = Path(report_entry["path"])
+        # Get report path from progress tracker data instead of global REPORTS dict
+        report_path_str = tracker.get("report_path")
+        if not report_path_str:
+            flash("Report file not found.", "error")
+            return redirect(url_for("web.index"))
+
+        report_path = Path(report_path_str)
+        if not report_path.exists():
+            flash("Report file not found on disk.", "error")
+            return redirect(url_for("web.index"))
 
         try:
             report_data = json.loads(report_path.read_text(encoding="utf-8"))
@@ -395,6 +404,12 @@ def create_app() -> Flask:
             def cleanup_tracker():
                 time.sleep(300)  # Keep for 5 minutes
                 _cleanup_progress_tracker(upload_id)
+                # Also cleanup report file
+                try:
+                    if report_path.exists():
+                        report_path.unlink()
+                except:
+                    pass
 
             cleanup_thread = threading.Thread(target=cleanup_tracker)
             cleanup_thread.daemon = True
