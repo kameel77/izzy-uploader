@@ -51,15 +51,15 @@ class ProgressTrackingSynchronizer(VehicleSynchronizer):
 
     def _upsert_vehicle(self, vehicle, report):
         """Override to update progress tracking."""
-        # Update progress
+        # Update progress BEFORE processing
         PROGRESS_TRACKERS[self.upload_id]["current_vehicle"] = vehicle.vin or vehicle.configuration_number or "Unknown"
         PROGRESS_TRACKERS[self.upload_id]["current_operation"] = f"Processing vehicle: {vehicle.vin or vehicle.configuration_number or 'Unknown'}"
-        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = self.processed_count
+        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = self.processed_count + 1  # Show as if already processing this one
 
         # Calculate progress percentage
         total = PROGRESS_TRACKERS[self.upload_id]["total_vehicles"]
         if total > 0:
-            PROGRESS_TRACKERS[self.upload_id]["progress"] = int((self.processed_count / total) * 100)
+            PROGRESS_TRACKERS[self.upload_id]["progress"] = max(1, int(((self.processed_count + 1) / total) * 100))  # At least 1% to avoid 0%
 
         # Call parent method
         result = super()._upsert_vehicle(vehicle, report)
@@ -290,15 +290,16 @@ def create_app() -> Flask:
         if not tracker:
             return json.dumps({"error": "Upload session not found"}), 404
 
+        # Ensure all values are properly initialized
         return json.dumps({
-            "status": tracker["status"],
-            "progress": tracker["progress"],
-            "total_vehicles": tracker["total_vehicles"],
-            "processed_vehicles": tracker["processed_vehicles"],
-            "current_vehicle": tracker["current_vehicle"],
-            "current_operation": tracker["current_operation"],
-            "errors": tracker["errors"],
-            "completed": tracker["completed"],
+            "status": tracker.get("status", "unknown"),
+            "progress": tracker.get("progress", 0),
+            "total_vehicles": tracker.get("total_vehicles", 0),
+            "processed_vehicles": tracker.get("processed_vehicles", 0),
+            "current_vehicle": tracker.get("current_vehicle", ""),
+            "current_operation": tracker.get("current_operation", "Initializing..."),
+            "errors": tracker.get("errors", []),
+            "completed": tracker.get("completed", False),
         })
 
     @bp.route("/upload/result/<upload_id>", methods=["GET"])
@@ -323,7 +324,7 @@ def create_app() -> Flask:
                 "updated": report_data.get("updated", 0),
                 "price_updates": report_data.get("price_updates", 0),
                 "closed": report_data.get("closed", 0),
-                "errors": len(report_data.get("errors", [])),
+                "errors": report_data.get("errors", 0),  # Already an integer from PipelineReport.as_dict()
             }
 
             # Clean up progress tracker after some time
