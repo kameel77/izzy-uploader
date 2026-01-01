@@ -146,18 +146,19 @@ class VehicleSynchronizer:
         except Exception as exc:  # pylint: disable=broad-except
             LOGGER.exception("Failed to create vehicle %s", car_label)
 
-            # Check for "already published" error and provide helpful guidance
+            # Check for "already published" error - make it non-fatal to allow sync to continue
             exc_str = str(exc).lower()
             if "already published" in exc_str or ("car with given vin" in exc_str and "published" in exc_str):
-                helpful_message = (
-                    f"Vehicle {vin_label} already exists in Izzylease but could not be found via dealer API. "
-                    "Ensure DEALER_ID is configured and the backoffice API endpoint is accessible. "
-                    "Alternatively, manually populate the local state file with the correct car_id for this VIN."
+                LOGGER.warning(
+                    "Vehicle %s already exists in Izzylease. Skipping creation. "
+                    "To update this vehicle or upload images, populate local state with its car_id.",
+                    vin_label
                 )
-                report.record_error(helpful_message, vin=vin_label)
+                # Don't record as error - allow sync to continue with other vehicles
+                return
             else:
                 report.record_error(f"creation failed: {exc}", vin=vin_label)
-            return
+                return
 
         self._state_store.upsert(vin_label, created_id, vehicle.configuration_number)
         report.created += 1
