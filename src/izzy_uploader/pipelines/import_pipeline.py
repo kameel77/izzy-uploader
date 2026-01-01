@@ -148,8 +148,8 @@ class VehicleSynchronizer:
             if "already published" in exc_str or ("car with given vin" in exc_str and "published" in exc_str):
                 helpful_message = (
                     f"Vehicle {vin_label} already exists in Izzylease but not in local state. "
-                    "Run a sync without --update-prices first to populate local state, "
-                    "then run again with --update-prices to update existing vehicles."
+                    "To update prices for existing vehicles, you need to populate local state first. "
+                    "Please run a sync WITHOUT the update-prices option checked, then run again WITH update-prices checked."
                 )
                 report.record_error(helpful_message, vin=vin_label)
             else:
