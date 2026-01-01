@@ -37,8 +37,39 @@ LOGGER = logging.getLogger(__name__)
 
 REPORTS: Dict[str, Dict[str, str]] = {}
 
-# Progress tracking for long-running uploads
-PROGRESS_TRACKERS: Dict[str, Dict[str, any]] = {}
+# Progress tracking for long-running uploads (stored in temp files for multi-worker support)
+def _get_progress_file_path(upload_id: str) -> Path:
+    """Get the path for a progress tracking file."""
+    return Path(tempfile.gettempdir()) / f"izzy_progress_{upload_id}.json"
+
+def _save_progress_tracker(upload_id: str, tracker: dict) -> None:
+    """Save progress tracker to file."""
+    try:
+        progress_file = _get_progress_file_path(upload_id)
+        with open(progress_file, 'w', encoding='utf-8') as f:
+            json.dump(tracker, f, ensure_ascii=False)
+    except Exception as e:
+        LOGGER.warning(f"Failed to save progress tracker {upload_id}: {e}")
+
+def _load_progress_tracker(upload_id: str) -> Optional[dict]:
+    """Load progress tracker from file."""
+    try:
+        progress_file = _get_progress_file_path(upload_id)
+        if progress_file.exists():
+            with open(progress_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        LOGGER.warning(f"Failed to load progress tracker {upload_id}: {e}")
+    return None
+
+def _cleanup_progress_tracker(upload_id: str) -> None:
+    """Clean up progress tracker file."""
+    try:
+        progress_file = _get_progress_file_path(upload_id)
+        if progress_file.exists():
+            progress_file.unlink()
+    except Exception as e:
+        LOGGER.warning(f"Failed to cleanup progress tracker {upload_id}: {e}")
 
 
 class ProgressTrackingSynchronizer(VehicleSynchronizer):
@@ -51,15 +82,21 @@ class ProgressTrackingSynchronizer(VehicleSynchronizer):
 
     def _upsert_vehicle(self, vehicle, report):
         """Override to update progress tracking."""
+        # Load current tracker
+        tracker = _load_progress_tracker(self.upload_id) or {}
+
         # Update progress BEFORE processing
-        PROGRESS_TRACKERS[self.upload_id]["current_vehicle"] = vehicle.vin or vehicle.configuration_number or "Unknown"
-        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = f"Processing vehicle: {vehicle.vin or vehicle.configuration_number or 'Unknown'}"
-        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = self.processed_count + 1  # Show as if already processing this one
+        tracker["current_vehicle"] = vehicle.vin or vehicle.configuration_number or "Unknown"
+        tracker["current_operation"] = f"Processing vehicle: {vehicle.vin or vehicle.configuration_number or 'Unknown'}"
+        tracker["processed_vehicles"] = self.processed_count + 1  # Show as if already processing this one
 
         # Calculate progress percentage
-        total = PROGRESS_TRACKERS[self.upload_id]["total_vehicles"]
+        total = tracker.get("total_vehicles", 0)
         if total > 0:
-            PROGRESS_TRACKERS[self.upload_id]["progress"] = max(1, int(((self.processed_count + 1) / total) * 100))  # At least 1% to avoid 0%
+            tracker["progress"] = max(1, int(((self.processed_count + 1) / total) * 100))  # At least 1% to avoid 0%
+
+        # Save updated tracker
+        _save_progress_tracker(self.upload_id, tracker)
 
         # Call parent method
         result = super()._upsert_vehicle(vehicle, report)
@@ -69,16 +106,21 @@ class ProgressTrackingSynchronizer(VehicleSynchronizer):
 
     def run(self, vehicles, *, close_missing=False, update_prices=False):
         """Override to update final progress."""
-        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = f"Starting synchronization of {len(vehicles)} vehicles..."
-        PROGRESS_TRACKERS[self.upload_id]["total_vehicles"] = len(vehicles)
+        # Load current tracker
+        tracker = _load_progress_tracker(self.upload_id) or {}
+        tracker["current_operation"] = f"Starting synchronization of {len(vehicles)} vehicles..."
+        tracker["total_vehicles"] = len(vehicles)
+        _save_progress_tracker(self.upload_id, tracker)
 
         # Call parent method
         report = super().run(vehicles, close_missing=close_missing, update_prices=update_prices)
 
         # Update final progress
-        PROGRESS_TRACKERS[self.upload_id]["progress"] = 100
-        PROGRESS_TRACKERS[self.upload_id]["processed_vehicles"] = len(vehicles)
-        PROGRESS_TRACKERS[self.upload_id]["current_operation"] = "Synchronization completed!"
+        tracker = _load_progress_tracker(self.upload_id) or {}
+        tracker["progress"] = 100
+        tracker["processed_vehicles"] = len(vehicles)
+        tracker["current_operation"] = "Synchronization completed!"
+        _save_progress_tracker(self.upload_id, tracker)
 
         return report
 
@@ -90,13 +132,18 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
         try:
             config = ServiceConfig.from_env()
         except Exception as exc:
-            PROGRESS_TRACKERS[upload_id]["status"] = "error"
-            PROGRESS_TRACKERS[upload_id]["errors"].append(f"Configuration error: {exc}")
-            PROGRESS_TRACKERS[upload_id]["completed"] = True
+            tracker = _load_progress_tracker(upload_id) or {}
+            tracker["status"] = "error"
+            tracker["errors"].append(f"Configuration error: {exc}")
+            tracker["completed"] = True
+            _save_progress_tracker(upload_id, tracker)
             return
 
-        PROGRESS_TRACKERS[upload_id]["status"] = "processing"
-        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Initializing state stores..."
+        # Update status to processing
+        tracker = _load_progress_tracker(upload_id) or {}
+        tracker["status"] = "processing"
+        tracker["current_operation"] = "Initializing state stores..."
+        _save_progress_tracker(upload_id, tracker)
 
         # Initialize stores
         state_store = VehicleStateStore(config.state_file)
@@ -110,9 +157,13 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
                 temp_file = Path(tempfile.gettempdir()) / "izzy_uploader_image_state.json"
                 image_state = ImageStateStore(temp_file)
             except Exception as e2:
-                PROGRESS_TRACKERS[upload_id]["errors"].append(f"Image state store error: {e2}")
+                tracker = _load_progress_tracker(upload_id) or {}
+                tracker["errors"].append(f"Image state store error: {e2}")
+                _save_progress_tracker(upload_id, tracker)
 
-        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Starting synchronization..."
+        tracker = _load_progress_tracker(upload_id) or {}
+        tracker["current_operation"] = "Starting synchronization..."
+        _save_progress_tracker(upload_id, tracker)
 
         # Create custom synchronizer with progress tracking
         synchronizer = ProgressTrackingSynchronizer(
@@ -136,7 +187,10 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
             )
 
         # Save report
-        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Generating report..."
+        tracker = _load_progress_tracker(upload_id) or {}
+        tracker["current_operation"] = "Generating report..."
+        _save_progress_tracker(upload_id, tracker)
+
         report_data = report.as_dict(include_details=True)
         report_json = json.dumps(report_data, ensure_ascii=False, indent=2)
 
@@ -146,16 +200,20 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
         REPORTS[report_id] = {"path": str(report_path), "filename": f"report_{report_id}.json"}
 
         # Update progress tracker
-        PROGRESS_TRACKERS[upload_id]["status"] = "completed"
-        PROGRESS_TRACKERS[upload_id]["progress"] = 100
-        PROGRESS_TRACKERS[upload_id]["completed"] = True
-        PROGRESS_TRACKERS[upload_id]["report_id"] = report_id
-        PROGRESS_TRACKERS[upload_id]["current_operation"] = "Upload completed successfully!"
+        tracker = _load_progress_tracker(upload_id) or {}
+        tracker["status"] = "completed"
+        tracker["progress"] = 100
+        tracker["completed"] = True
+        tracker["report_id"] = report_id
+        tracker["current_operation"] = "Upload completed successfully!"
+        _save_progress_tracker(upload_id, tracker)
 
     except Exception as exc:
-        PROGRESS_TRACKERS[upload_id]["status"] = "error"
-        PROGRESS_TRACKERS[upload_id]["errors"].append(f"Processing error: {exc}")
-        PROGRESS_TRACKERS[upload_id]["completed"] = True
+        tracker = _load_progress_tracker(upload_id) or {}
+        tracker["status"] = "error"
+        tracker["errors"].append(f"Processing error: {exc}")
+        tracker["completed"] = True
+        _save_progress_tracker(upload_id, tracker)
         LOGGER.exception(f"Background upload processing failed for {upload_id}")
 
     finally:
@@ -229,7 +287,7 @@ def create_app() -> Flask:
         upload_id = str(uuid.uuid4())
 
         # Initialize progress tracker
-        PROGRESS_TRACKERS[upload_id] = {
+        tracker = {
             "status": "initializing",
             "progress": 0,
             "total_vehicles": 0,
@@ -240,6 +298,7 @@ def create_app() -> Flask:
             "completed": False,
             "report_id": None,
         }
+        _save_progress_tracker(upload_id, tracker)
 
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_csv:
@@ -248,14 +307,17 @@ def create_app() -> Flask:
 
         try:
             # Load and validate CSV
-            PROGRESS_TRACKERS[upload_id]["current_operation"] = "Validating CSV data..."
+            tracker["current_operation"] = "Validating CSV data..."
+            _save_progress_tracker(upload_id, tracker)
+
             vehicles, csv_errors = load_vehicles_from_csv(tmp_csv_path)
-            PROGRESS_TRACKERS[upload_id]["total_vehicles"] = len(vehicles)
+            tracker["total_vehicles"] = len(vehicles)
 
             for csv_error in csv_errors:
-                PROGRESS_TRACKERS[upload_id]["errors"].append(
+                tracker["errors"].append(
                     f"CSV line {csv_error.line_number}: {csv_error.message}"
                 )
+            _save_progress_tracker(upload_id, tracker)
 
             # Start background processing
             import threading
@@ -266,14 +328,15 @@ def create_app() -> Flask:
             return redirect(url_for("web.upload_progress", upload_id=upload_id))
 
         except Exception as exc:
-            PROGRESS_TRACKERS[upload_id]["status"] = "error"
-            PROGRESS_TRACKERS[upload_id]["errors"].append(str(exc))
-            PROGRESS_TRACKERS[upload_id]["completed"] = True
+            tracker["status"] = "error"
+            tracker["errors"].append(str(exc))
+            tracker["completed"] = True
+            _save_progress_tracker(upload_id, tracker)
             return redirect(url_for("web.upload_progress", upload_id=upload_id))
 
     @bp.route("/upload/progress/<upload_id>", methods=["GET"])
     def upload_progress(upload_id: str) -> str:
-        tracker = PROGRESS_TRACKERS.get(upload_id)
+        tracker = _load_progress_tracker(upload_id)
         if not tracker:
             flash("Upload session not found.", "error")
             return redirect(url_for("web.index"))
@@ -286,7 +349,7 @@ def create_app() -> Flask:
 
     @bp.route("/upload/progress/<upload_id>/status", methods=["GET"])
     def upload_progress_status(upload_id: str) -> str:
-        tracker = PROGRESS_TRACKERS.get(upload_id)
+        tracker = _load_progress_tracker(upload_id)
         if not tracker:
             return json.dumps({"error": "Upload session not found"}), 404
 
@@ -304,7 +367,7 @@ def create_app() -> Flask:
 
     @bp.route("/upload/result/<upload_id>", methods=["GET"])
     def upload_result(upload_id: str) -> str:
-        tracker = PROGRESS_TRACKERS.get(upload_id)
+        tracker = _load_progress_tracker(upload_id)
         if not tracker or not tracker.get("completed"):
             flash("Upload not completed yet.", "error")
             return redirect(url_for("web.index"))
@@ -331,7 +394,7 @@ def create_app() -> Flask:
             import time
             def cleanup_tracker():
                 time.sleep(300)  # Keep for 5 minutes
-                PROGRESS_TRACKERS.pop(upload_id, None)
+                _cleanup_progress_tracker(upload_id)
 
             cleanup_thread = threading.Thread(target=cleanup_tracker)
             cleanup_thread.daemon = True
