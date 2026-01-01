@@ -85,6 +85,9 @@ class VehicleSynchronizer:
             report.record_error(str(exc))
             return report
 
+        # Populate local state with existing dealer cars if possible
+        self._populate_existing_cars()
+
         for vehicle in desired.values():
             self._upsert_vehicle(vehicle, report)
 
@@ -147,9 +150,9 @@ class VehicleSynchronizer:
             exc_str = str(exc).lower()
             if "already published" in exc_str or ("car with given vin" in exc_str and "published" in exc_str):
                 helpful_message = (
-                    f"Vehicle {vin_label} already exists in Izzylease but not in local state. "
-                    "To update prices for existing vehicles, you need to populate local state first. "
-                    "Please run a sync WITHOUT the update-prices option checked, then run again WITH update-prices checked."
+                    f"Vehicle {vin_label} already exists in Izzylease but could not be found via dealer API. "
+                    "Ensure DEALER_ID is configured and the backoffice API endpoint is accessible. "
+                    "Alternatively, manually populate the local state file with the correct car_id for this VIN."
                 )
                 report.record_error(helpful_message, vin=vin_label)
             else:
@@ -243,6 +246,41 @@ class VehicleSynchronizer:
             except (URLError, Exception) as exc:
                 LOGGER.exception("Failed to upload image %s for new vehicle %s", url, car_id)
                 report.record_error(f"image upload failed for {url}: {exc}", vin=vehicle.vin, car_id=car_id)
+
+    def _populate_existing_cars(self) -> None:
+        """Populate local state with existing cars from the dealer's account."""
+        try:
+            # Check if dealer_id is configured
+            if not hasattr(self._client._config, 'dealer_id') or not self._client._config.dealer_id:
+                LOGGER.debug("Dealer ID not configured, skipping existing cars population")
+                return
+
+            LOGGER.info("Fetching existing cars for dealer %s", self._client._config.dealer_id)
+            dealer_cars = self._client.list_dealer_cars()
+
+            if not isinstance(dealer_cars, list):
+                LOGGER.warning("Unexpected response format for dealer cars: %s", type(dealer_cars))
+                return
+
+            populated_count = 0
+            for car in dealer_cars:
+                if not isinstance(car, dict):
+                    continue
+                vin = car.get('vin')
+                car_id = car.get('id') or car.get('car_id')
+                if vin and car_id:
+                    # Only populate if not already in state
+                    existing_id = self._state_store.get_car_id(vin)
+                    if not existing_id:
+                        self._state_store.upsert(vin, str(car_id), None)  # No config number available
+                        populated_count += 1
+                        LOGGER.debug("Populated state for existing vehicle VIN %s with car_id %s", vin, car_id)
+
+            LOGGER.info("Populated local state with %d existing vehicles", populated_count)
+
+        except Exception as exc:  # pylint: disable=broad-except
+            LOGGER.warning("Failed to populate existing cars from dealer API: %s", exc)
+            # Continue without failing the sync
 
     def _close_missing_vehicles(self, desired_vins: Set[str], report: PipelineReport) -> None:
         known_vins = set(self._state_store.known_vins())

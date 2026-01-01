@@ -97,6 +97,11 @@ class IzzyleaseClient:
                 continue
             self.delete_car_image(car_id, str(image_id))
 
+    def list_dealer_cars(self) -> Any:
+        """Get all cars for the dealer from backoffice API."""
+        dealer_id = self._config.dealer_id
+        return self._request("GET", f"/backoffice/dealers/{dealer_id}/cars")
+
     # -- HTTP helper -------------------------------------------------
     def _request(
         self,
