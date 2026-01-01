@@ -174,9 +174,10 @@ def _process_upload_background(upload_id: str, vehicles: list, csv_errors: list,
             upload_id
         )
 
-        # Get options from session if possible (this is tricky in background thread)
-        close_missing = False  # Default to False for background processing
-        update_prices = False
+        # Get options from progress tracker
+        tracker = _load_progress_tracker(upload_id) or {}
+        close_missing = tracker.get("close_missing", False)
+        update_prices = tracker.get("update_prices", False)
 
         report = synchronizer.run(vehicles, close_missing=close_missing, update_prices=update_prices)
 
@@ -285,6 +286,10 @@ def create_app() -> Flask:
             flash("Wybierz plik CSV.", "error")
             return redirect(url_for("web.index"))
 
+        # Get form options
+        close_missing = request.form.get("close_missing") == "on"
+        update_prices = request.form.get("update_prices") == "on"
+
         # Generate unique upload ID for progress tracking
         upload_id = str(uuid.uuid4())
 
@@ -299,6 +304,8 @@ def create_app() -> Flask:
             "errors": [],
             "completed": False,
             "report_id": None,
+            "close_missing": close_missing,  # Store options in tracker
+            "update_prices": update_prices,
         }
         _save_progress_tracker(upload_id, tracker)
 
